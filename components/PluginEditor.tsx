@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PluginInstance, Track } from '../types';
 import { audioEngine } from '../engine/AudioEngine';
 import { AutoTuneUI } from '../plugins/AutoTunePlugin';
@@ -16,7 +16,7 @@ import { ProEQ12UI } from '../plugins/ProEQ12Plugin';
 import { VocalSaturatorUI } from '../plugins/VocalSaturatorPlugin';
 import { MasterSyncUI } from '../plugins/MasterSyncPlugin';
 import VSTPluginWindow from './VSTPluginWindow';
-import SamplerEditor from './SamplerEditor'; 
+import SamplerEditor from './SamplerEditor';
 import DrumSamplerEditor from './DrumSamplerEditor';
 import MelodicSamplerEditor from './MelodicSamplerEditor';
 import DrumRack from './DrumRack';
@@ -26,13 +26,62 @@ interface PluginEditorProps {
   trackId: string;
   onUpdateParams: (params: Record<string, any>) => void;
   onClose: () => void;
-  isMobile?: boolean; 
+  isMobile?: boolean;
   track?: Track; // Needed for Drum Rack
   onUpdateTrack?: (track: Track) => void; // Needed for Drum Rack
 }
 
 const PluginEditor: React.FC<PluginEditorProps> = ({ plugin, trackId, onClose, onUpdateParams, isMobile, track, onUpdateTrack }) => {
-  
+  const [nodeInstance, setNodeInstance] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Polling effect to wait for DSP node creation
+  useEffect(() => {
+    // Skip polling for special plugin types that don't need DSP nodes
+    if (['VST3', 'SAMPLER', 'DRUM_SAMPLER', 'MELODIC_SAMPLER', 'DRUM_RACK_UI'].includes(plugin.type)) {
+      return;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 30; // 3 seconds timeout (30 * 100ms)
+    let timer: any;
+
+    const pollForNode = async () => {
+      const node = audioEngine.getPluginNodeInstance(trackId, plugin.id);
+      if (node) {
+        // Check for async initialization promise
+        if (node.ready && typeof node.ready.then === 'function') {
+          try {
+            await node.ready;
+            setNodeInstance(node);
+          } catch (err) {
+            console.error(`[PluginEditor] Async init failed for ${plugin.name}`, err);
+            setError("Le processeur DSP du plugin a échoué à s'initialiser.");
+          }
+        } else {
+          setNodeInstance(node);
+        }
+      } else {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          setError("Timeout du moteur de plugin. Le noeud DSP n'a pas pu être créé.");
+        } else {
+          timer = setTimeout(pollForNode, 100);
+        }
+      }
+    };
+
+    pollForNode();
+    return () => clearTimeout(timer);
+  }, [trackId, plugin.id, plugin.type, plugin.name, retryCount]);
+
+  const handleRetry = () => {
+    setError(null);
+    setNodeInstance(null);
+    setRetryCount(prev => prev + 1);
+  };
+
   // --- SPECIAL CASE: VST3 EXTERNALS ---
   if (plugin.type === 'VST3') {
       return (
@@ -90,13 +139,36 @@ const PluginEditor: React.FC<PluginEditorProps> = ({ plugin, trackId, onClose, o
   }
 
   // --- INTERNAL WEB AUDIO PLUGINS ---
-  const nodeInstance = audioEngine.getPluginNodeInstance(trackId, plugin.id);
+  // Error state with retry button
+  if (error) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center z-[300]">
+        <div className="bg-[#0f1115] border border-red-500/30 p-10 rounded-[32px] text-center w-80 shadow-2xl relative">
+          <button onClick={onClose} className="absolute top-4 right-4 text-white"><i className="fas fa-times"></i></button>
+          <i className="fas fa-bug text-4xl text-red-500 mb-4"></i>
+          <p className="text-red-400 font-bold text-xs mb-4">{error}</p>
+          <button
+            onClick={handleRetry}
+            className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
+  // Loading state with spinner
   if (!nodeInstance) {
     return (
-      <div className="bg-[#0f1115] border border-white/10 p-10 rounded-[32px] text-center w-80 shadow-2xl">
-         <i className="fas fa-ghost text-4xl text-slate-700 mb-4"></i>
-         <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest">Initialisation DSP...</p>
+      <div className="fixed inset-0 flex items-center justify-center z-[300]">
+        <div className="bg-[#0f1115] border border-white/10 p-10 rounded-[32px] text-center w-80 shadow-2xl relative">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin mb-4 mx-auto"></div>
+            <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest animate-pulse">Initialisation DSP...</p>
+          </div>
+          <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-white"><i className="fas fa-times"></i></button>
+        </div>
       </div>
     );
   }
