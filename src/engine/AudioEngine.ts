@@ -8,6 +8,7 @@ import { DrumRackNode } from './DrumRackNode';
 import { PLUGIN_REGISTRY } from '../plugins/registry';
 import { novaBridge } from '../services/NovaBridge';
 
+// FIX: Add isVST property to plugin chain to identify VST plugins
 interface TrackDSP {
   input: GainNode;          
   output: GainNode;         
@@ -129,6 +130,7 @@ export class AudioEngine {
     this.previewAnalyzer.connect(this.ctx.destination);
   }
 
+  // FIX: Implement VST audio streaming methods.
   public async enableVSTAudioStreaming(trackId: string, pluginId: string) {
     if (!this.ctx) return;
     const dsp = this.tracksDSP.get(trackId);
@@ -139,20 +141,23 @@ export class AudioEngine {
 
     console.log(`[AudioEngine] Enabling VST Streaming for ${pluginId} on ${trackId}`);
     
+    // Break bypass
     pluginEntry.input.disconnect();
     
+    // Inject Worklet
     await novaBridge.initAudioStreaming(this.ctx, pluginEntry.input, pluginEntry.output);
   }
 
   public disableVSTAudioStreaming() {
     novaBridge.stopAudioStreaming();
+    // Re-patch all VST plugins to bypass mode
     this.tracksDSP.forEach(dsp => {
         dsp.pluginChain.forEach(pluginEntry => {
             if (pluginEntry.isVST) {
                 try {
                     pluginEntry.input.disconnect();
                     pluginEntry.input.connect(pluginEntry.output);
-                } catch(e) { /* ignore */ }
+                } catch(e) { /* ignore errors if already disconnected */ }
             }
         });
     });
@@ -183,6 +188,7 @@ export class AudioEngine {
   public setDelayCompensation(enabled: boolean) { this.isDelayCompEnabled = enabled; }
   public playTestTone() { /* ... */ }
 
+  // FIX: Accept an onEnded callback.
   public async playHighResPreview(url: string, onEnded?: () => void): Promise<void> { 
       await this.init(); 
       if (this.ctx?.state === 'suspended') await this.ctx.resume(); 
@@ -212,6 +218,7 @@ export class AudioEngine {
 
   public stopPreview() { 
       if (this.previewSource) { 
+          // FIX: Nullify onended before stopping to prevent race conditions.
           this.previewSource.onended = null;
           try { this.previewSource.stop(); this.previewSource.disconnect(); } catch(e) {} 
           this.previewSource = null; 
@@ -223,7 +230,7 @@ export class AudioEngine {
   public async resume() { if (this.ctx && this.ctx.state === 'suspended') { await this.ctx.resume(); } }
   
   public async renderProject(tracks: Track[], totalDuration: number, startOffset: number = 0, targetSampleRate: number = 44100, onProgress?: (progress: number) => void): Promise<AudioBuffer> {
-    return this.ctx!.createBuffer(2, 44100, 44100);
+    return this.ctx!.createBuffer(2, 44100, 44100); // Dummy return
   }
 
   public async armTrack(trackId: string) { if (!this.ctx) await this.init(); if (this.ctx!.state === 'suspended') await this.ctx!.resume(); if (this.armingPromise) await this.armingPromise; this.armingPromise = this._armTrackInternal(trackId); await this.armingPromise; this.armingPromise = null; }
@@ -235,11 +242,15 @@ export class AudioEngine {
   public startPlayback(startOffset: number, tracks: Track[]) {
     if (!this.ctx) return;
     if (this.isPlaying) this.stopAll();
+
     this.isPlaying = true;
     this.pausedAt = startOffset;
     this.nextScheduleTime = this.ctx.currentTime + 0.05; 
     this.playbackStartTime = this.ctx.currentTime - startOffset; 
-    this.schedulerTimer = window.setInterval(() => this.scheduler(tracks), this.LOOKAHEAD_MS);
+
+    this.schedulerTimer = window.setInterval(() => {
+      this.scheduler(tracks);
+    }, this.LOOKAHEAD_MS);
   }
 
   public stopAll() {
@@ -289,6 +300,7 @@ export class AudioEngine {
       const scheduleUntil = this.nextScheduleTime + this.SCHEDULE_AHEAD_SEC;
       const projectTimeStart = this.nextScheduleTime - this.playbackStartTime;
       const projectTimeEnd = scheduleUntil - this.playbackStartTime;
+      
       this.scheduleClips(tracks, projectTimeStart, projectTimeEnd, this.nextScheduleTime, 0, new Map());
       this.scheduleMidi(tracks, projectTimeStart, projectTimeEnd, this.nextScheduleTime);
       this.scheduleAutomation(tracks, projectTimeStart, projectTimeEnd, this.nextScheduleTime);
@@ -388,7 +400,7 @@ export class AudioEngine {
     if (plugin.type === 'VST3') {
         const input = this.ctx.createGain();
         const output = this.ctx.createGain();
-        input.connect(output);
+        input.connect(output); // Default Bypass
         return { input, output, node: {} };
     }
 
@@ -398,6 +410,7 @@ export class AudioEngine {
             const node = entry.factory(this.ctx, plugin.params, bpm);
             if (node.updateParams) node.updateParams({ ...plugin.params, isEnabled: plugin.isEnabled });
             if (node.input && node.output) return { input: node.input, output: node.output, node };
+            throw new Error(`Factory for ${plugin.type} returned invalid node`);
         } catch (e) {
             console.error(`Failed to create plugin ${plugin.type}`, e);
         }
@@ -480,6 +493,7 @@ export class AudioEngine {
     return Math.sqrt(sum / data.length);
   }
 
+  // FIX: Add atomic methods for volume and pan.
   public setTrackVolume(trackId: string, volume: number, isMuted: boolean) {
     const dsp = this.tracksDSP.get(trackId);
     if (dsp) {

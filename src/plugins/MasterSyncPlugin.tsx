@@ -51,12 +51,14 @@ export class MasterSyncNode {
     this.updateParams({ isAnalyzing: true, analysisProgress: 5, hasResult: false, error: undefined, alignmentApplied: undefined });
     
     try {
+      // Simulation de progression pour l'UX
       const progressTimer = setInterval(() => {
         if (this.params.analysisProgress < 90) {
           this.updateParams({ analysisProgress: this.params.analysisProgress + 10 });
         }
       }, 200);
 
+      // Appel du vrai moteur DSP
       const result = await AudioAnalysisEngine.analyzeTrack(buffer);
       
       clearInterval(progressTimer);

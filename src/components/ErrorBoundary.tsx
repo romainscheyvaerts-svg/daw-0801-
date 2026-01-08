@@ -13,6 +13,9 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // FIX: Switched to a constructor for state initialization.
+  // The class property `state = {}` syntax might not be correctly transformed by some build setups,
+  // leading to `this` context issues. A constructor is the standard, universally compatible way to initialize state.
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = {
@@ -20,10 +23,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       error: null,
       errorInfo: null,
     };
-    // FIX: To ensure 'this' context within handleReset, it's bound here.
-    // This is a robust alternative to class property arrow functions, which may not be
-    // supported in all build environments.
-    this.handleReset = this.handleReset.bind(this);
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
@@ -47,15 +46,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
   }
 
-  // FIX: Converted from an arrow function class property to a standard class method
-  // to maintain consistency with constructor-based initialization and binding.
-  handleReset() {
+  handleReset = () => {
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null,
     });
-  }
+  };
 
   render() {
     if (this.state.hasError) {
