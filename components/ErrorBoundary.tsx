@@ -41,13 +41,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       errorInfo,
     });
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     if (this.props.onError) {
+      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
       this.props.onError(error, errorInfo);
     }
   }
 
   handleReset = () => {
-    // FIX: 'setState' must be accessed via 'this' in class components.
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     this.setState({
       hasError: false,
       error: null,
@@ -56,9 +58,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   render() {
-    // FIX: 'state' and 'props' must be accessed via 'this' in class components.
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     if (this.state.hasError) {
+      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
       if (this.props.fallback) {
+        // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
         return this.props.fallback;
       }
 
@@ -82,6 +86,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       );
     }
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     return this.props.children;
   }
 }

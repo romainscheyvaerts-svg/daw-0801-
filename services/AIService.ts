@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { DAWState, AIAction } from "../types";
 import { NOTES } from "../plugins/AutoTunePlugin"; // Reuse note constant
 
@@ -136,11 +136,12 @@ export const generateCreativeMetadata = async (category: string): Promise<{ name
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json",
+                // FIX: Use the Type enum from @google/genai as per guidelines.
                 responseSchema: {
-                    type: "OBJECT" as any,
+                    type: Type.OBJECT,
                     properties: {
-                        name: { type: "STRING" as any },
-                        prompt: { type: "STRING" as any }
+                        name: { type: Type.STRING },
+                        prompt: { type: Type.STRING }
                     }
                 }
             }

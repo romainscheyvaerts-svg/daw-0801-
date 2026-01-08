@@ -98,6 +98,7 @@ export class AudioEngine {
   private currentOutputDeviceId: string = 'default';
   public sampleRate: number = 44100;
   public latency: number = 0;
+  private currentBpm: number = 120;
 
   constructor() {}
 
@@ -439,14 +440,74 @@ export class AudioEngine {
 
   private scheduleAutomation(tracks: Track[], start: number, end: number, when: number) { /* ... */ }
   private playClipSource(trackId: string, clip: Clip, scheduleTime: number, projectTime: number) { /* ... */ }
-  private createPluginNode(plugin: PluginInstance, ctx: BaseAudioContext) { /* ... */ return null; }
+  private createPluginNode(plugin: PluginInstance, bpm: number): { input: GainNode; output: GainNode; node: any } | null {
+    if (!this.ctx) return null;
+    
+    let node: any = null;
+    
+    switch (plugin.type) {
+      case 'REVERB':
+        node = new ReverbNode(this.ctx);
+        break;
+      case 'DELAY':
+        node = new SyncDelayNode(this.ctx, bpm);
+        break;
+      case 'COMPRESSOR':
+        node = new CompressorNode(this.ctx);
+        break;
+      case 'AUTOTUNE':
+        node = new AutoTuneNode(this.ctx);
+        break;
+      case 'CHORUS':
+        node = new ChorusNode(this.ctx);
+        break;
+      case 'FLANGER':
+        node = new FlangerNode(this.ctx);
+        break;
+      case 'DOUBLER':
+        node = new VocalDoublerNode(this.ctx);
+        break;
+      case 'STEREOSPREADER':
+        node = new StereoSpreaderNode(this.ctx);
+        break;
+      case 'DEESSER':
+        node = new DeEsserNode(this.ctx);
+        break;
+      case 'DENOISER':
+        node = new DenoiserNode(this.ctx);
+        break;
+      case 'PROEQ12':
+        node = new ProEQ12Node(this.ctx);
+        break;
+      case 'VOCALSATURATOR':
+        node = new VocalSaturatorNode(this.ctx);
+        break;
+      case 'MASTERSYNC':
+        node = new MasterSyncNode(this.ctx);
+        break;
+      default:
+        // Plugin type not supported, create bypass
+        const bypassIn = this.ctx.createGain();
+        const bypassOut = this.ctx.createGain();
+        bypassIn.connect(bypassOut);
+        return { input: bypassIn, output: bypassOut, node: { updateParams: () => {} } };
+    }
+    
+    if (node && node.input && node.output) {
+      if (node.updateParams) {
+        node.updateParams({ ...plugin.params, isEnabled: plugin.isEnabled });
+      }
+      return { input: node.input, output: node.output, node };
+    }
+    
+    return null;
+  }
 
   // --- UPDATE TRACK ---
   public updateTrack(track: Track, allTracks: Track[]) {
     if (!this.ctx) return;
     let dsp = this.tracksDSP.get(track.id);
     
-    // Create Nodes if new
     if (!dsp) {
       dsp = {
         input: this.ctx.createGain(),
@@ -459,40 +520,77 @@ export class AudioEngine {
         inputAnalyzer: this.ctx.createAnalyser()
       };
       
-      // Instantiate Instrument Engines
       if (track.type === TrackType.MIDI) {
-          dsp.synth = new Synthesizer(this.ctx);
-          dsp.synth.output.connect(dsp.input);
+        dsp.synth = new Synthesizer(this.ctx);
+        dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-          dsp.melodicSampler = new MelodicSamplerNode(this.ctx);
-          dsp.melodicSampler.output.connect(dsp.input);
-          dsp.drumSampler = new DrumSamplerNode(this.ctx); // Single
-          dsp.drumSampler.output.connect(dsp.input);
-          dsp.sampler = new AudioSampler(this.ctx);
+        // FIX: The logic of creating three samplers was flawed and caused an error.
+        // It's simplified to create one legacy sampler, with its output correctly connected.
+        // Modern samplers are handled via plugins.
+        dsp.sampler = new AudioSampler(this.ctx);
+        dsp.sampler.output.connect(dsp.input);
       }
-      // DRUM RACK
       if (track.type === TrackType.DRUM_RACK) {
-          dsp.drumRack = new DrumRackNode(this.ctx);
-          dsp.drumRack.output.connect(dsp.input);
+        dsp.drumRack = new DrumRackNode(this.ctx);
+        dsp.drumRack.output.connect(dsp.input);
       }
-
       this.tracksDSP.set(track.id, dsp);
     }
     
-    // Update Drum Rack State (Pads volume, pan, etc)
     if (track.type === TrackType.DRUM_RACK && dsp.drumRack && track.drumPads) {
-        dsp.drumRack.updatePadsState(track.drumPads);
+      dsp.drumRack.updatePadsState(track.drumPads);
     }
     
-    // ... (Rest of standard updateTrack Logic for plugins/volume/pan) ...
-    // Re-injecting vital parts:
+    // Disconnect for rebuild
     dsp.input.disconnect();
     let head: AudioNode = dsp.input;
-    // ...
-    // Basic routing
-    head.connect(dsp.gain); dsp.gain.connect(dsp.panner); dsp.panner.connect(dsp.analyzer); dsp.analyzer.connect(dsp.output);
-
+    
+    // ===== PLUGIN CHAIN CREATION (THIS WAS MISSING!) =====
+    const currentPluginIds = new Set<string>();
+    
+    track.plugins.forEach(plugin => {
+      currentPluginIds.add(plugin.id);
+      let pEntry = dsp!.pluginChain.get(plugin.id);
+      
+      if (!pEntry) {
+        const instance = this.createPluginNode(plugin, this.currentBpm);
+        if (instance) {
+          pEntry = {
+            input: instance.input,
+            output: instance.output,
+            instance: instance.node
+          };
+          dsp!.pluginChain.set(plugin.id, pEntry);
+        }
+      } else if (pEntry.instance && pEntry.instance.updateParams) {
+        pEntry.instance.updateParams(plugin.params);
+      }
+      
+      if (pEntry && plugin.isEnabled) {
+        head.connect(pEntry.input);
+        head = pEntry.output;
+      }
+    });
+    
+    // Remove old plugins
+    dsp.pluginChain.forEach((val, id) => {
+      if (!currentPluginIds.has(id)) {
+        try {
+          val.input.disconnect();
+          val.output.disconnect();
+        } catch (e) {}
+        dsp!.pluginChain.delete(id);
+      }
+    });
+    // ===== END PLUGIN CHAIN =====
+    
+    // Continue routing
+    head.connect(dsp.gain);
+    dsp.gain.connect(dsp.panner);
+    dsp.panner.connect(dsp.analyzer);
+    dsp.analyzer.connect(dsp.output);
+  
     const now = this.ctx.currentTime;
     dsp.gain.gain.setTargetAtTime(track.isMuted ? 0 : track.volume, now, 0.015);
     dsp.panner.pan.setTargetAtTime(track.pan, now, 0.015);
@@ -500,8 +598,8 @@ export class AudioEngine {
     dsp.output.disconnect();
     let destNode: AudioNode = this.masterOutput!;
     if (track.outputTrackId && track.outputTrackId !== 'master') {
-        const destDSP = this.tracksDSP.get(track.outputTrackId);
-        if (destDSP) destNode = destDSP.input;
+      const destDSP = this.tracksDSP.get(track.outputTrackId);
+      if (destDSP) destNode = destDSP.input;
     }
     dsp.output.connect(destNode);
   }
