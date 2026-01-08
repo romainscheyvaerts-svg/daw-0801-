@@ -35,11 +35,10 @@ const PluginEditor: React.FC<PluginEditorProps> = ({ plugin, trackId, onClose, o
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
+  // Polling effect to wait for DSP node creation
   useEffect(() => {
     // Skip polling for special plugin types that don't need DSP nodes
     if (['VST3', 'SAMPLER', 'DRUM_SAMPLER', 'MELODIC_SAMPLER', 'DRUM_RACK_UI'].includes(plugin.type)) {
-      // For these special types, we can set a dummy instance or handle them differently
-      // Since they are returned early, this effect won't run for them in the current structure.
       return;
     }
 

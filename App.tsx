@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Track, TrackType, DAWState, ProjectPhase, PluginInstance, PluginType, MobileTab, TrackSend, Clip, AIAction, AutomationLane, AIChatMessage, ViewMode, User, Theme, DrumPad } from './types';
 import { audioEngine } from './engine/AudioEngine';
@@ -220,7 +219,15 @@ export default function App() {
   const handleViewModeChange = (mode: ViewMode) => { setViewMode(mode); localStorage.setItem('nova_view_mode', mode); };
   useEffect(() => { document.body.setAttribute('data-view-mode', viewMode); }, [viewMode]);
   const isMobile = viewMode === 'MOBILE';
-  const ensureAudioEngine = async () => { if (!audioEngine.ctx) await audioEngine.init(); if (audioEngine.ctx?.state === 'suspended') await audioEngine.ctx.resume(); };
+  const ensureAudioEngine = async () => {
+    const wasUninitialized = !audioEngine.ctx;
+    if (!audioEngine.ctx) await audioEngine.init();
+    if (audioEngine.ctx?.state === 'suspended') await audioEngine.ctx.resume();
+    // Force update tracks to create DSP nodes if AudioEngine was just initialized
+    if (wasUninitialized && audioEngine.ctx) {
+      stateRef.current.tracks.forEach(t => audioEngine.updateTrack(t, stateRef.current.tracks));
+    }
+  };
 
   const handleLogout = async () => { await supabaseManager.signOut(); setUser(null); };
   const handleBuyLicense = (instrumentId: number) => { if (!user) return; const updatedUser = { ...user, owned_instruments: [...(user.owned_instruments || []), instrumentId] }; setUser(updatedUser); setAiNotification(`✅ Licence achetée avec succès ! Export débloqué.`); };
@@ -301,7 +308,7 @@ export default function App() {
   const handleDeleteTrack = useCallback((trackId: string) => { /* ... */ }, [setState]);
   const handleRemovePlugin = useCallback((tid: string, pid: string) => { /* ... */ }, [setState, activePlugin]);
   
-  const handleAddPluginFromContext = useCallback((tid: string, type: PluginType, metadata?: any, options?: { openUI: boolean }) => {
+  const handleAddPluginFromContext = useCallback(async (tid: string, type: PluginType, metadata?: any, options?: { openUI: boolean }) => {
     const newPlugin = createDefaultPlugins(type, 0.5, stateRef.current.bpm, metadata);
     
     setState(prev => {
@@ -316,11 +323,13 @@ export default function App() {
     });
 
     if (options?.openUI) {
-        ensureAudioEngine();
-        
+        // Ensure AudioEngine is initialized before opening plugin UI
+        await ensureAudioEngine();
+
+        // Give time for state update to propagate and AudioEngine to create DSP nodes
         setTimeout(() => {
             setActivePlugin({ trackId: tid, plugin: newPlugin });
-        }, 0);
+        }, 50);
     }
   }, [setState]);
 
@@ -416,7 +425,7 @@ export default function App() {
                selectedTrackId={state.selectedTrackId} onSelectTrack={id => setState(p => ({ ...p, selectedTrackId: id }))} 
                onUpdateTrack={handleUpdateTrack} onReorderTracks={() => {}} 
                onDropPluginOnTrack={(trackId, type, metadata) => handleAddPluginFromContext(trackId, type, metadata, { openUI: true })} 
-               onSelectPlugin={(tid, p) => { ensureAudioEngine(); setActivePlugin({trackId:tid, plugin:p}); }} 
+               onSelectPlugin={async (tid, p) => { await ensureAudioEngine(); setActivePlugin({trackId:tid, plugin:p}); }} 
                onRemovePlugin={handleRemovePlugin} 
                onRequestAddPlugin={(tid, x, y) => setAddPluginMenu({ trackId: tid, x, y })} 
                onAddTrack={handleCreateTrack} onDuplicateTrack={handleDuplicateTrack} onDeleteTrack={handleDeleteTrack} 
@@ -434,7 +443,7 @@ export default function App() {
              <MixerView 
                 tracks={state.tracks} 
                 onUpdateTrack={handleUpdateTrack} 
-                onOpenPlugin={(tid, p) => setActivePlugin({trackId:tid, plugin:p})} 
+                onOpenPlugin={async (tid, p) => { await ensureAudioEngine(); setActivePlugin({trackId:tid, plugin:p}); }} 
                 onDropPluginOnTrack={(trackId, type, metadata) => handleAddPluginFromContext(trackId, type, metadata, { openUI: true })}
                 onRemovePlugin={handleRemovePlugin}
                 onAddBus={handleAddBus}

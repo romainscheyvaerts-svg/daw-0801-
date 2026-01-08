@@ -18,6 +18,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   // leading to `this` context issues. A constructor is the standard, universally compatible way to initialize state.
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    // FIX: Class properties like 'state' must be assigned to 'this.state' inside a constructor.
     this.state = {
       hasError: false,
       error: null,
@@ -32,10 +33,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // This lifecycle method is also called after an error has been thrown by a descendant component.
-    // It receives two parameters: the error and an errorInfo object with a componentStack key.
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     this.setState({
       error,
       errorInfo,
@@ -47,6 +47,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   handleReset = () => {
+    // FIX: 'setState' must be accessed via 'this' in class components.
     this.setState({
       hasError: false,
       error: null,
@@ -55,6 +56,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   render() {
+    // FIX: 'state' and 'props' must be accessed via 'this' in class components.
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback;
