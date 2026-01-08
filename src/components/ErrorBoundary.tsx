@@ -90,3 +90,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return this.props.children;
   }
 }
+
+// FIX: Add default export to match expected module structure
+export default ErrorBoundary;

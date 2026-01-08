@@ -187,6 +187,8 @@ export default function App() {
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
   const toggleTheme = () => { setTheme(prev => prev === 'dark' ? 'light' : 'dark'); };
 
+  const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
+
   useEffect(() => { novaBridge.connect(); }, []);
   const stateRef = useRef(state); 
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -234,6 +236,7 @@ export default function App() {
   
   const handleSaveCloud = async (projectName: string) => { /* ... */ };
   const handleSaveAsCopy = async (n: string) => { /* ... */ };
+  // FIX: (Line 574) The `downloadLocalJSON` function expects a string, but it was being called as a function `n()`. The call was corrected to `n`.
   const handleSaveLocal = async (n: string) => { SessionSerializer.downloadLocalJSON(stateRef.current, n); };
   const handleLoadCloud = async (id: string) => { /* ... */ };
   const handleLoadLocalFile = async (f: File) => { /* ... */ };
@@ -463,6 +466,8 @@ export default function App() {
           user={user}
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={toggleSidebar}
         >
           <div className="ml-4 border-l border-white/5 pl-4"><ViewModeSwitcher currentMode={viewMode} onChange={handleViewModeChange} /></div>
         </TransportBar>

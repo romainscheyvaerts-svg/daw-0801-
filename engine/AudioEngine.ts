@@ -2,6 +2,7 @@
 
 
 
+
 import { Track, Clip, PluginInstance, TrackType, TrackSend, AutomationLane, PluginParameter, PluginType, MidiNote, DrumPad } from '../types';
 import { ReverbNode } from '../plugins/ReverbPlugin';
 import { SyncDelayNode } from '../plugins/DelayPlugin';
@@ -559,8 +560,8 @@ export class AudioEngine {
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-// FIX: (Line 563) The AutoTuneNode constructor now expects 1 argument. Passing only context.
-        node = new AutoTuneNode(this.ctx);
+// FIX: (Line 584) The AutoTuneNode constructor now expects the initial parameters as a second argument.
+        node = new AutoTuneNode(this.ctx, plugin.params);
         break;
       case 'CHORUS':
         node = new ChorusNode(this.ctx);
@@ -629,7 +630,7 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-// FIX: (Line 584) The AudioSampler constructor expects the current BPM as a second argument.
+// The AudioSampler constructor expects the current BPM as a second argument.
         dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
         dsp.sampler.output.connect(dsp.input);
       }
