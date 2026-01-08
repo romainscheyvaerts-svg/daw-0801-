@@ -1,4 +1,6 @@
+
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { ContextMenuItem } from '../types';
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
@@ -67,7 +69,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className="min-h-screen bg-black flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center p-6">
           <div className="max-w-2xl w-full bg-gray-900 rounded-lg border border-red-500/30 p-8">
             <h1 className="text-2xl font-black text-red-500 text-center mb-4 uppercase">
               Something Went Wrong
@@ -90,3 +92,5 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return this.props.children;
   }
 }
+
+export default ErrorBoundary;

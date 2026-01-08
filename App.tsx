@@ -28,6 +28,7 @@ import PianoRoll from './components/PianoRoll';
 import { midiManager } from './services/MidiManager';
 import { AUDIO_CONFIG, UI_CONFIG } from './utils/constants';
 import SideBrowser2 from './components/SideBrowser2';
+import { produce } from 'immer';
 
 const AVAILABLE_FX_MENU = [
     { id: 'MASTERSYNC', name: 'Master Sync', icon: 'fa-sync-alt' },
@@ -223,7 +224,6 @@ export default function App() {
     const wasUninitialized = !audioEngine.ctx;
     if (!audioEngine.ctx) await audioEngine.init();
     if (audioEngine.ctx?.state === 'suspended') await audioEngine.ctx.resume();
-    // Force update tracks to create DSP nodes if AudioEngine was just initialized
     if (wasUninitialized && audioEngine.ctx) {
       stateRef.current.tracks.forEach(t => audioEngine.updateTrack(t, stateRef.current.tracks));
     }
@@ -241,12 +241,12 @@ export default function App() {
   const handleExportMix = async () => { setIsExportMenuOpen(true); };
 
   const handleEditClip = (trackId: string, clipId: string, action: string, payload?: any) => {
-    setState(prev => {
-      const track = prev.tracks.find(t => t.id === trackId);
-      if (!track) return prev;
+    setState(produce((draft: DAWState) => {
+      const track = draft.tracks.find(t => t.id === trackId);
+      if (!track) return;
       let newClips = [...track.clips];
       const idx = newClips.findIndex(c => c.id === clipId);
-      if (idx === -1 && action !== 'PASTE') return prev;
+      if (idx === -1 && action !== 'PASTE') return;
       switch(action) {
         case 'UPDATE_PROPS': if(idx > -1) newClips[idx] = { ...newClips[idx], ...payload }; break;
         case 'DELETE': if(idx > -1) newClips.splice(idx, 1); break;
@@ -266,43 +266,121 @@ export default function App() {
             }
             break;
       }
-      return { ...prev, tracks: prev.tracks.map(t => t.id === trackId ? { ...t, clips: newClips } : t) };
-    });
+      track.clips = newClips;
+    }));
   };
 
   const handleUpdateBpm = useCallback((newBpm: number) => { setState(prev => ({ ...prev, bpm: Math.max(20, Math.min(999, newBpm)) })); }, [setState]);
-  const handleUpdateTrack = useCallback((t: Track) => { setState(prev => ({ ...prev, tracks: prev.tracks.map(trk => trk.id === t.id ? t : trk) })); }, [setState]);
   
+  const handleUpdateTrack = useCallback((updatedTrack: Track) => {
+    const previousTrack = stateRef.current.tracks.find(t => t.id === updatedTrack.id);
+
+    // Handle Arm/Disarm side effect
+    if (previousTrack && previousTrack.isTrackArmed !== updatedTrack.isTrackArmed) {
+        if (updatedTrack.isTrackArmed) {
+            audioEngine.armTrack(updatedTrack.id);
+            // Disarm all other tracks
+            setState(produce(draft => {
+                draft.tracks.forEach(t => {
+                    if (t.id !== updatedTrack.id) t.isTrackArmed = false;
+                });
+            }));
+        } else {
+            audioEngine.disarmTrack();
+        }
+    }
+
+    setState(produce(draft => {
+        const trackIndex = draft.tracks.findIndex(t => t.id === updatedTrack.id);
+        if (trackIndex !== -1) {
+            draft.tracks[trackIndex] = updatedTrack;
+        }
+    }));
+  }, [setState]);
+
   const handleUpdatePluginParams = useCallback((trackId: string, pluginId: string, params: Record<string, any>) => {
-    setState(prev => {
-      const newTracks = prev.tracks.map(t => (t.id !== trackId) ? t : {
-          ...t, plugins: t.plugins.map(p => p.id === pluginId ? { ...p, params: { ...p.params, ...params } } : p)
-      });
-      return { ...prev, tracks: newTracks };
-    });
+    setState(produce((draft: DAWState) => {
+      const track = draft.tracks.find(t => t.id === trackId);
+      if (track) {
+          const plugin = track.plugins.find(p => p.id === pluginId);
+          if (plugin) plugin.params = { ...plugin.params, ...params };
+      }
+    }));
     const pluginNode = audioEngine.getPluginNodeInstance(trackId, pluginId);
     if (pluginNode && pluginNode.updateParams) { pluginNode.updateParams(params); }
   }, [setState]);
 
   const handleSeek = useCallback((time: number) => { setVisualState({ currentTime: time }); audioEngine.seekTo(time, stateRef.current.tracks, stateRef.current.isPlaying); }, [setVisualState]);
   
-  const handleTogglePlay = useCallback(async () => { /* ... */ }, [setVisualState]);
-  const handleStop = useCallback(async () => { /* ... */ }, [setVisualState]);
+  const handleTogglePlay = useCallback(async () => {
+      await ensureAudioEngine();
+      if (stateRef.current.isPlaying) {
+        audioEngine.stopAll();
+        setVisualState({ isPlaying: false });
+      } else {
+        audioEngine.startPlayback(stateRef.current.currentTime, stateRef.current.tracks);
+        setVisualState({ isPlaying: true });
+      }
+  }, [setVisualState]);
+
+  const handleStop = useCallback(async () => {
+    audioEngine.stopAll();
+    audioEngine.seekTo(0, stateRef.current.tracks, false);
+    setState(prev => ({ ...prev, isPlaying: false, currentTime: 0, isRecording: false }));
+  }, [setState]);
+
+  const handleToggleRecord = useCallback(async () => {
+    await ensureAudioEngine();
+    const currentState = stateRef.current;
+    
+    // Stop recording
+    if (currentState.isRecording) {
+      const result = await audioEngine.stopRecording();
+      setState(produce(draft => {
+        draft.isRecording = false;
+        draft.recStartTime = null;
+        if (result) {
+          const track = draft.tracks.find(t => t.id === result.trackId);
+          if (track) {
+            track.clips.push(result.clip);
+          }
+        }
+      }));
+      return;
+    }
+  
+    // Start recording
+    const armedTrack = currentState.tracks.find(t => t.isTrackArmed);
+    if (armedTrack) {
+      const success = await audioEngine.startRecording(currentState.currentTime, armedTrack.id);
+      if (success) {
+        setState(produce(draft => {
+          draft.isRecording = true;
+          draft.recStartTime = draft.currentTime;
+        }));
+      }
+    } else {
+      setNoArmedTrackError(true);
+      setTimeout(() => setNoArmedTrackError(false), 2000);
+    }
+  }, [setState]);
+
+
   const handleDuplicateTrack = useCallback((trackId: string) => { /* ... */ }, [setState]);
 
   const handleCreateTrack = useCallback((type: TrackType, name?: string, initialPluginType?: PluginType) => {
-      setState(prev => {
+      setState(produce((draft: DAWState) => {
           let drumPads: DrumPad[] | undefined = undefined;
           if (type === TrackType.DRUM_RACK) {
               drumPads = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, name: `Pad ${i + 1}`, sampleName: 'Empty', volume: 0.8, pan: 0, isMuted: false, isSolo: false, midiNote: 60 + i }));
           }
           const plugins: PluginInstance[] = [];
-          if (initialPluginType) { plugins.push(createDefaultPlugins(initialPluginType, 1.0, prev.bpm)); }
+          if (initialPluginType) { plugins.push(createDefaultPlugins(initialPluginType, 1.0, draft.bpm)); }
           const newTrack: Track = {
-              id: `track-${Date.now()}`, name: name || `${type} TRACK`, type, color: UI_CONFIG.TRACK_COLORS[prev.tracks.length % UI_CONFIG.TRACK_COLORS.length], isMuted: false, isSolo: false, isTrackArmed: false, isFrozen: false, volume: 1.0, pan: 0, outputTrackId: 'master', sends: [], clips: [], plugins, automationLanes: [], totalLatency: 0, drumPads
+              id: `track-${Date.now()}`, name: name || `${type} TRACK`, type, color: UI_CONFIG.TRACK_COLORS[draft.tracks.length % UI_CONFIG.TRACK_COLORS.length], isMuted: false, isSolo: false, isTrackArmed: false, isFrozen: false, volume: 1.0, pan: 0, outputTrackId: 'master', sends: [], clips: [], plugins, automationLanes: [], totalLatency: 0, drumPads
           };
-          return { ...prev, tracks: [...prev.tracks, newTrack] };
-      });
+          draft.tracks.push(newTrack);
+      }));
   }, [setState]);
 
   const handleDeleteTrack = useCallback((trackId: string) => { /* ... */ }, [setState]);
@@ -311,22 +389,15 @@ export default function App() {
   const handleAddPluginFromContext = useCallback(async (tid: string, type: PluginType, metadata?: any, options?: { openUI: boolean }) => {
     const newPlugin = createDefaultPlugins(type, 0.5, stateRef.current.bpm, metadata);
     
-    setState(prev => {
-        const trackIdx = prev.tracks.findIndex(t => t.id === tid);
-        if (trackIdx === -1) return prev;
-        
-        const newTracks = [...prev.tracks];
-        const newPlugins = [...newTracks[trackIdx].plugins, newPlugin];
-        newTracks[trackIdx] = { ...newTracks[trackIdx], plugins: newPlugins };
-        
-        return { ...prev, tracks: newTracks };
-    });
+    setState(produce((draft: DAWState) => {
+        const track = draft.tracks.find(t => t.id === tid);
+        if (track) {
+            track.plugins.push(newPlugin);
+        }
+    }));
 
     if (options?.openUI) {
-        // Ensure AudioEngine is initialized before opening plugin UI
         await ensureAudioEngine();
-
-        // Give time for state update to propagate and AudioEngine to create DSP nodes
         setTimeout(() => {
             setActivePlugin({ trackId: tid, plugin: newPlugin });
         }, 50);
@@ -371,7 +442,7 @@ export default function App() {
           onToggleLoop={() => setState(p => ({...p, isLoopActive: !p.isLoopActive}))}
           onStop={handleStop}
           onTogglePlay={handleTogglePlay}
-          onToggleRecord={() => {}}
+          onToggleRecord={handleToggleRecord}
           currentView={state.currentView}
           onChangeView={v => setState(s => ({...s, currentView: v}))}
           statusMessage={externalImportNotice}

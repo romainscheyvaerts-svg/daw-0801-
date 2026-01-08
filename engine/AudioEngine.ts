@@ -1,5 +1,6 @@
 
 
+
 import { Track, Clip, PluginInstance, TrackType, TrackSend, AutomationLane, PluginParameter, PluginType, MidiNote, DrumPad } from '../types';
 import { ReverbNode } from '../plugins/ReverbPlugin';
 import { SyncDelayNode } from '../plugins/DelayPlugin';
@@ -232,12 +233,115 @@ export class AudioEngine {
     return this.ctx!.createBuffer(2, 44100, 44100); // Dummy return
   }
 
-  // ... (armTrack, startRecording, stopRecording, startPlayback, stopAll, etc.) ...
-  public async armTrack(trackId: string) { if (!this.ctx) await this.init(); if (this.ctx!.state === 'suspended') await this.ctx!.resume(); if (this.armingPromise) await this.armingPromise; this.armingPromise = this._armTrackInternal(trackId); await this.armingPromise; this.armingPromise = null; }
-  private async _armTrackInternal(trackId: string) { this.monitoringTrackId = trackId; }
-  public disarmTrack() { this.monitoringTrackId = null; }
-  public async startRecording(currentTime: number, trackId: string): Promise<boolean> { return false; }
-  public async stopRecording(): Promise<{ clip: Clip, trackId: string } | null> { return null; }
+  public async armTrack(trackId: string) {
+    if (!this.ctx) await this.init();
+    if (this.ctx!.state === 'suspended') await this.ctx!.resume();
+    if (this.armingPromise) await this.armingPromise;
+    this.armingPromise = this._armTrackInternal(trackId);
+    await this.armingPromise;
+    this.armingPromise = null;
+  }
+
+  private async _armTrackInternal(trackId: string) {
+    this.disarmTrack();
+    this.monitoringTrackId = trackId;
+    const dsp = this.tracksDSP.get(trackId);
+    if (!dsp) return;
+
+    try {
+      this.activeMonitorStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+// FIX: The 'latency' property is not a standard MediaTrackConstraint and causes a TypeScript error. 
+// It has been removed. Low latency is already requested in the AudioContext constructor.
+        }
+      });
+      this.monitorSource = this.ctx!.createMediaStreamSource(this.activeMonitorStream);
+      this.monitorSource.connect(dsp.input);
+    } catch (e) {
+      console.error("Error arming track: ", e);
+      this.monitoringTrackId = null;
+    }
+  }
+
+  public disarmTrack() {
+    if (this.monitorSource) {
+      this.monitorSource.disconnect();
+      this.monitorSource = null;
+    }
+    if (this.activeMonitorStream) {
+      this.activeMonitorStream.getTracks().forEach(track => track.stop());
+      this.activeMonitorStream = null;
+    }
+    this.monitoringTrackId = null;
+  }
+
+  public async startRecording(currentTime: number, trackId: string): Promise<boolean> {
+    if (!this.activeMonitorStream || this.recordingTrackId) return false;
+    try {
+      this.mediaRecorder = new MediaRecorder(this.activeMonitorStream);
+      this.audioChunks = [];
+      this.recStartTime = currentTime;
+      this.recordingTrackId = trackId;
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          this.audioChunks.push(event.data);
+        }
+      };
+      this.mediaRecorder.start();
+      console.log("[AudioEngine] Recording started on track:", trackId);
+      return true;
+    } catch (e) {
+      console.error("Error starting recording:", e);
+      this.recordingTrackId = null;
+      return false;
+    }
+  }
+
+  public async stopRecording(): Promise<{ clip: Clip, trackId: string } | null> {
+    if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive' || !this.recordingTrackId) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      this.mediaRecorder!.onstop = async () => {
+        const trackId = this.recordingTrackId!;
+        const blob = new Blob(this.audioChunks, { type: this.mediaRecorder!.mimeType });
+        if (blob.size === 0) {
+          resolve(null);
+          return;
+        }
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await this.ctx!.decodeAudioData(arrayBuffer);
+          const clip: Clip = {
+            id: `rec-${Date.now()}`,
+            name: `Vocal Take ${new Date().toLocaleTimeString()}`,
+            start: this.recStartTime,
+            duration: audioBuffer.duration,
+            offset: 0,
+            fadeIn: 0.01,
+            fadeOut: 0.01,
+            type: TrackType.AUDIO,
+            color: '#ff0000',
+            buffer: audioBuffer,
+            audioRef: URL.createObjectURL(blob),
+          };
+          console.log("[AudioEngine] Recording stopped. New clip created:", clip);
+          resolve({ clip, trackId });
+        } catch (e) {
+          console.error("Error processing recorded audio:", e);
+          resolve(null);
+        } finally {
+          this.audioChunks = [];
+          this.recordingTrackId = null;
+          this.recStartTime = 0;
+        }
+      };
+      this.mediaRecorder.stop();
+    });
+  }
 
   public startPlayback(startOffset: number, tracks: Track[]) {
     if (!this.ctx) return;
@@ -456,7 +560,8 @@ export class AudioEngine {
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-        node = new AutoTuneNode(this.ctx);
+// FIX: The AutoTuneNode constructor expects initial parameters. Passing them from the plugin instance.
+        node = new AutoTuneNode(this.ctx, plugin.params);
         break;
       case 'CHORUS':
         node = new ChorusNode(this.ctx);
