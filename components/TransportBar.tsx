@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, PropsWithChildren } from 'react';
 import { ViewType, Theme, User } from '../types';
 import { MasterMeter } from './MeterWidgets';
@@ -42,6 +41,9 @@ interface TransportProps {
   user?: User | null;
   onOpenAuth?: () => void; 
   onLogout?: () => void;
+
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 const TransportBar: React.FC<PropsWithChildren<TransportProps>> = ({ 
@@ -50,6 +52,7 @@ const TransportBar: React.FC<PropsWithChildren<TransportProps>> = ({
   onOpenSaveMenu, onOpenLoadMenu, onExportMix, onShareProject, onOpenAudioEngine, isDelayCompEnabled, onToggleDelayComp,
   onUndo, onRedo, canUndo, canRedo, 
   user, onOpenAuth, onLogout, 
+  isSidebarOpen, onToggleSidebar,
   children
 }) => {
   const [isEditingBpm, setIsEditingBpm] = useState(false);
@@ -116,6 +119,14 @@ const TransportBar: React.FC<PropsWithChildren<TransportProps>> = ({
       {/* LEFT CONTROLS */}
       <div className="flex items-center space-x-3">
           <div className="hidden md:flex items-center space-x-2">
+            <button 
+              onClick={onToggleSidebar} 
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors border ${isSidebarOpen ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400' : 'bg-white/5 border-white/10 text-slate-500 hover:text-white'}`}
+              title={isSidebarOpen ? "Masquer le navigateur" : "Afficher le navigateur"}
+            >
+              <i className="fas fa-columns text-xs"></i>
+            </button>
+            <div className="h-6 w-px bg-white/5" style={{ backgroundColor: 'var(--border-dim)' }}></div>
              <div className="flex items-center space-x-1 pr-2 border-r border-white/5" style={{ borderColor: 'var(--border-dim)' }}>
                 <button onClick={onUndo} disabled={!canUndo} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border border-white/10 ${canUndo ? 'bg-white/5 hover:bg-cyan-500 hover:text-black' : 'opacity-30 cursor-not-allowed'}`} style={{ color: canUndo ? 'var(--text-primary)' : 'var(--text-secondary)' }}><i className="fas fa-undo text-[10px]"></i></button>
                 <button onClick={onRedo} disabled={!canRedo} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all border border-white/10 ${canRedo ? 'bg-white/5 hover:bg-cyan-500 hover:text-black' : 'opacity-30 cursor-not-allowed'}`} style={{ color: canRedo ? 'var(--text-primary)' : 'var(--text-secondary)' }}><i className="fas fa-redo text-[10px]"></i></button>
