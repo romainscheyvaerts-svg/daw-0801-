@@ -1,6 +1,7 @@
 
 
 
+
 import { Track, Clip, PluginInstance, TrackType, TrackSend, AutomationLane, PluginParameter, PluginType, MidiNote, DrumPad } from '../types';
 import { ReverbNode } from '../plugins/ReverbPlugin';
 import { SyncDelayNode } from '../plugins/DelayPlugin';
@@ -254,8 +255,6 @@ export class AudioEngine {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
-// FIX: The 'latency' property is not a standard MediaTrackConstraint and causes a TypeScript error. 
-// It has been removed. Low latency is already requested in the AudioContext constructor.
         }
       });
       this.monitorSource = this.ctx!.createMediaStreamSource(this.activeMonitorStream);
@@ -560,7 +559,7 @@ export class AudioEngine {
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-// FIX: The AutoTuneNode constructor expects initial parameters. Passing them from the plugin instance.
+// FIX: The AutoTuneNode constructor now expects parameters. Passing plugin.params.
         node = new AutoTuneNode(this.ctx, plugin.params);
         break;
       case 'CHORUS':
@@ -630,10 +629,8 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-        // FIX: The logic of creating three samplers was flawed and caused an error.
-        // It's simplified to create one legacy sampler, with its output correctly connected.
-        // Modern samplers are handled via plugins.
-        dsp.sampler = new AudioSampler(this.ctx);
+// FIX: The AudioSampler constructor expects the current BPM as a second argument.
+        dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
         dsp.sampler.output.connect(dsp.input);
       }
       if (track.type === TrackType.DRUM_RACK) {

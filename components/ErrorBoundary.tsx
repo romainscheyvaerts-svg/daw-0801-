@@ -1,96 +1,114 @@
-
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ContextMenuItem } from '../types';
 
 interface ErrorBoundaryProps {
-  children?: ReactNode;
-  fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  x: number;
+  y: number;
+  items: (ContextMenuItem | 'separator')[];
+  onClose: () => void;
 }
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-  errorInfo: ErrorInfo | null;
-}
+const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x, y });
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // FIX: Switched to a constructor for state initialization.
-  // The class property `state = {}` syntax might not be correctly transformed by some build setups,
-  // leading to `this` context issues. A constructor is the standard, universally compatible way to initialize state.
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    // FIX: Class properties like 'state' must be assigned to 'this.state' inside a constructor.
-    this.state = {
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    };
-  }
+  useEffect(() => {
+    // Smart Positioning Logic
+    if (menuRef.current) {
+        const rect = menuRef.current.getBoundingClientRect();
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        
+        let newX = x;
+        let newY = y;
 
-  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    // This lifecycle method is called after an error has been thrown by a descendant component.
-    // It receives the error that was thrown as a parameter and should return a value to update state.
-    return { hasError: true, error };
-  }
+        // Check Right Edge
+        if (x + rect.width > screenW) {
+            newX = x - rect.width;
+        }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+        // Check Bottom Edge
+        if (y + rect.height > screenH) {
+            newY = y - rect.height;
+        }
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-    this.setState({
-      error,
-      errorInfo,
-    });
+        // Prevent top/left overflow
+        newX = Math.max(0, newX);
+        newY = Math.max(0, newY);
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-    if (this.props.onError) {
-      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-      this.props.onError(error, errorInfo);
+        setPosition({ x: newX, y: newY });
     }
-  }
+  }, [x, y]);
 
-  handleReset = () => {
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    });
-  };
-
-  render() {
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-    if (this.state.hasError) {
-      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-      if (this.props.fallback) {
-        // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-        return this.props.fallback;
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
       }
+    };
+    
+    // Timeout to prevent immediate close if the triggering click bubbles
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 50);
+    
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [onClose]);
 
-      return (
-        <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center p-6">
-          <div className="max-w-2xl w-full bg-gray-900 rounded-lg border border-red-500/30 p-8">
-            <h1 className="text-2xl font-black text-red-500 text-center mb-4 uppercase">
-              Something Went Wrong
-            </h1>
-            <p className="text-gray-400 text-center mb-8">
-              An unexpected error occurred.
-            </p>
+  return (
+    <div 
+      ref={menuRef}
+      className="fixed z-[9999] min-w-[200px] bg-[#1a1c22] border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.8)] rounded-lg py-1.5 overflow-hidden animate-in fade-in zoom-in duration-75 text-[#e2e8f0]"
+      style={{ left: position.x, top: position.y }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {items.map((item, idx) => {
+        if (item === 'separator') {
+            return <div key={`sep-${idx}`} className="h-px bg-white/10 my-1 mx-2"></div>;
+        }
+
+        return (
+          <div key={idx} className="flex flex-col">
             <button
-                onClick={this.handleReset}
-                className="w-full px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-black font-black rounded uppercase transition-colors"
-              >
-                Try Again
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!item.disabled) {
+                    item.onClick();
+                    onClose();
+                }
+              }}
+              disabled={item.disabled}
+              className={`w-full px-4 py-2 flex items-center justify-between text-[11px] font-medium transition-colors group ${
+                  item.disabled 
+                  ? 'opacity-40 cursor-not-allowed' 
+                  : item.danger 
+                    ? 'hover:bg-red-500/20 text-red-400 hover:text-red-300' 
+                    : 'hover:bg-[#00f2ff] hover:text-black'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                 {item.icon && <i className={`fas ${item.icon} w-4 text-center ${item.danger ? '' : 'text-slate-400 group-hover:text-black'}`}></i>}
+                 <span>{item.label}</span>
+              </div>
+              {item.shortcut && (
+                  <span className={`text-[9px] font-mono ml-4 ${item.disabled ? '' : 'text-slate-500 group-hover:text-black/60'}`}>
+                      {item.shortcut}
+                  </span>
+              )}
             </button>
+            {item.component && (
+                <div className="px-2 pb-2 pt-1 border-b border-white/5 mb-1 bg-black/20">
+                    {item.component}
+                </div>
+            )}
           </div>
-        </div>
-      );
-    }
+        );
+      })}
+    </div>
+  );
+};
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
-    return this.props.children;
-  }
-}
-
-export default ErrorBoundary;
+export default ContextMenu;

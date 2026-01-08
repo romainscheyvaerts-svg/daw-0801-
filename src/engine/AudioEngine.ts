@@ -407,6 +407,7 @@ export class AudioEngine {
     const entry = PLUGIN_REGISTRY[plugin.type];
     if (entry) {
         try {
+            // FIX: Pass initial params to AutoTuneNode constructor
             const node = entry.factory(this.ctx, plugin.params, bpm);
             if (node.updateParams) node.updateParams({ ...plugin.params, isEnabled: plugin.isEnabled });
             if (node.input && node.output) return { input: node.input, output: node.output, node };

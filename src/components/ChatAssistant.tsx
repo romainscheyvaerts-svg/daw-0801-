@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { AIChatMessage, AIAction } from '../types';
 
@@ -53,6 +52,16 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ onSendMessage, onExecuteA
   const handleSend = async (customMsg?: string) => {
     const msgToSend = customMsg || inputValue;
     if (!msgToSend.trim()) return;
+
+    if (!process.env.API_KEY) {
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: "⚠️ Clé API manquante. L'assistant ne peut pas répondre. Configurez votre API_KEY.",
+            timestamp: Date.now()
+        }]);
+        return;
+    }
 
     const userMsg: AIChatMessage = {
       id: Date.now().toString(),
