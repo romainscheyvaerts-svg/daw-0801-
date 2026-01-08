@@ -559,8 +559,8 @@ export class AudioEngine {
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-// FIX: The AutoTuneNode constructor now expects parameters. Passing plugin.params.
-        node = new AutoTuneNode(this.ctx, plugin.params);
+// FIX: (Line 563) The AutoTuneNode constructor now expects 1 argument. Passing only context.
+        node = new AutoTuneNode(this.ctx);
         break;
       case 'CHORUS':
         node = new ChorusNode(this.ctx);
@@ -629,7 +629,7 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-// FIX: The AudioSampler constructor expects the current BPM as a second argument.
+// FIX: (Line 584) The AudioSampler constructor expects the current BPM as a second argument.
         dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
         dsp.sampler.output.connect(dsp.input);
       }
