@@ -1,4 +1,3 @@
-
 export interface SamplerADSR {
   attack: number;
   decay: number;
@@ -31,7 +30,8 @@ export class AudioSampler {
   // Root key for the sample (C4 = 60)
   private rootKey: number = 60;
 
-  constructor(ctx: AudioContext) {
+  // FIX: The constructor now accepts a BPM argument to match the call in AudioEngine.
+  constructor(ctx: AudioContext, bpm: number) {
     this.ctx = ctx;
     this.output = ctx.createGain();
   }

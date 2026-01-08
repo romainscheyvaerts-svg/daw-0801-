@@ -1,5 +1,7 @@
 
 
+
+
 import { Track, Clip, PluginInstance, TrackType, TrackSend, AutomationLane, PluginParameter, PluginType, MidiNote, DrumPad } from '../types';
 import { ReverbNode } from '../plugins/ReverbPlugin';
 import { SyncDelayNode } from '../plugins/DelayPlugin';
@@ -98,6 +100,7 @@ export class AudioEngine {
   private currentOutputDeviceId: string = 'default';
   public sampleRate: number = 44100;
   public latency: number = 0;
+  private currentBpm: number = 120;
 
   constructor() {}
 
@@ -231,12 +234,113 @@ export class AudioEngine {
     return this.ctx!.createBuffer(2, 44100, 44100); // Dummy return
   }
 
-  // ... (armTrack, startRecording, stopRecording, startPlayback, stopAll, etc.) ...
-  public async armTrack(trackId: string) { if (!this.ctx) await this.init(); if (this.ctx!.state === 'suspended') await this.ctx!.resume(); if (this.armingPromise) await this.armingPromise; this.armingPromise = this._armTrackInternal(trackId); await this.armingPromise; this.armingPromise = null; }
-  private async _armTrackInternal(trackId: string) { this.monitoringTrackId = trackId; }
-  public disarmTrack() { this.monitoringTrackId = null; }
-  public async startRecording(currentTime: number, trackId: string): Promise<boolean> { return false; }
-  public async stopRecording(): Promise<{ clip: Clip, trackId: string } | null> { return null; }
+  public async armTrack(trackId: string) {
+    if (!this.ctx) await this.init();
+    if (this.ctx!.state === 'suspended') await this.ctx!.resume();
+    if (this.armingPromise) await this.armingPromise;
+    this.armingPromise = this._armTrackInternal(trackId);
+    await this.armingPromise;
+    this.armingPromise = null;
+  }
+
+  private async _armTrackInternal(trackId: string) {
+    this.disarmTrack();
+    this.monitoringTrackId = trackId;
+    const dsp = this.tracksDSP.get(trackId);
+    if (!dsp) return;
+
+    try {
+      this.activeMonitorStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      });
+      this.monitorSource = this.ctx!.createMediaStreamSource(this.activeMonitorStream);
+      this.monitorSource.connect(dsp.input);
+    } catch (e) {
+      console.error("Error arming track: ", e);
+      this.monitoringTrackId = null;
+    }
+  }
+
+  public disarmTrack() {
+    if (this.monitorSource) {
+      this.monitorSource.disconnect();
+      this.monitorSource = null;
+    }
+    if (this.activeMonitorStream) {
+      this.activeMonitorStream.getTracks().forEach(track => track.stop());
+      this.activeMonitorStream = null;
+    }
+    this.monitoringTrackId = null;
+  }
+
+  public async startRecording(currentTime: number, trackId: string): Promise<boolean> {
+    if (!this.activeMonitorStream || this.recordingTrackId) return false;
+    try {
+      this.mediaRecorder = new MediaRecorder(this.activeMonitorStream);
+      this.audioChunks = [];
+      this.recStartTime = currentTime;
+      this.recordingTrackId = trackId;
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          this.audioChunks.push(event.data);
+        }
+      };
+      this.mediaRecorder.start();
+      console.log("[AudioEngine] Recording started on track:", trackId);
+      return true;
+    } catch (e) {
+      console.error("Error starting recording:", e);
+      this.recordingTrackId = null;
+      return false;
+    }
+  }
+
+  public async stopRecording(): Promise<{ clip: Clip, trackId: string } | null> {
+    if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive' || !this.recordingTrackId) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      this.mediaRecorder!.onstop = async () => {
+        const trackId = this.recordingTrackId!;
+        const blob = new Blob(this.audioChunks, { type: this.mediaRecorder!.mimeType });
+        if (blob.size === 0) {
+          resolve(null);
+          return;
+        }
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await this.ctx!.decodeAudioData(arrayBuffer);
+          const clip: Clip = {
+            id: `rec-${Date.now()}`,
+            name: `Vocal Take ${new Date().toLocaleTimeString()}`,
+            start: this.recStartTime,
+            duration: audioBuffer.duration,
+            offset: 0,
+            fadeIn: 0.01,
+            fadeOut: 0.01,
+            type: TrackType.AUDIO,
+            color: '#ff0000',
+            buffer: audioBuffer,
+            audioRef: URL.createObjectURL(blob),
+          };
+          console.log("[AudioEngine] Recording stopped. New clip created:", clip);
+          resolve({ clip, trackId });
+        } catch (e) {
+          console.error("Error processing recorded audio:", e);
+          resolve(null);
+        } finally {
+          this.audioChunks = [];
+          this.recordingTrackId = null;
+          this.recStartTime = 0;
+        }
+      };
+      this.mediaRecorder.stop();
+    });
+  }
 
   public startPlayback(startOffset: number, tracks: Track[]) {
     if (!this.ctx) return;
@@ -439,14 +543,75 @@ export class AudioEngine {
 
   private scheduleAutomation(tracks: Track[], start: number, end: number, when: number) { /* ... */ }
   private playClipSource(trackId: string, clip: Clip, scheduleTime: number, projectTime: number) { /* ... */ }
-  private createPluginNode(plugin: PluginInstance, ctx: BaseAudioContext) { /* ... */ return null; }
+  private createPluginNode(plugin: PluginInstance, bpm: number): { input: GainNode; output: GainNode; node: any } | null {
+    if (!this.ctx) return null;
+    
+    let node: any = null;
+    
+    switch (plugin.type) {
+      case 'REVERB':
+        node = new ReverbNode(this.ctx);
+        break;
+      case 'DELAY':
+        node = new SyncDelayNode(this.ctx, bpm);
+        break;
+      case 'COMPRESSOR':
+        node = new CompressorNode(this.ctx);
+        break;
+      case 'AUTOTUNE':
+// FIX: The AutoTuneNode constructor now expects parameters. Passing plugin.params.
+        node = new AutoTuneNode(this.ctx, plugin.params);
+        break;
+      case 'CHORUS':
+        node = new ChorusNode(this.ctx);
+        break;
+      case 'FLANGER':
+        node = new FlangerNode(this.ctx);
+        break;
+      case 'DOUBLER':
+        node = new VocalDoublerNode(this.ctx);
+        break;
+      case 'STEREOSPREADER':
+        node = new StereoSpreaderNode(this.ctx);
+        break;
+      case 'DEESSER':
+        node = new DeEsserNode(this.ctx);
+        break;
+      case 'DENOISER':
+        node = new DenoiserNode(this.ctx);
+        break;
+      case 'PROEQ12':
+        node = new ProEQ12Node(this.ctx);
+        break;
+      case 'VOCALSATURATOR':
+        node = new VocalSaturatorNode(this.ctx);
+        break;
+      case 'MASTERSYNC':
+        node = new MasterSyncNode(this.ctx);
+        break;
+      default:
+        // Plugin type not supported, create bypass
+        const bypassIn = this.ctx.createGain();
+        const bypassOut = this.ctx.createGain();
+        bypassIn.connect(bypassOut);
+        return { input: bypassIn, output: bypassOut, node: { updateParams: () => {} } };
+    }
+    
+    if (node && node.input && node.output) {
+      if (node.updateParams) {
+        node.updateParams({ ...plugin.params, isEnabled: plugin.isEnabled });
+      }
+      return { input: node.input, output: node.output, node };
+    }
+    
+    return null;
+  }
 
   // --- UPDATE TRACK ---
   public updateTrack(track: Track, allTracks: Track[]) {
     if (!this.ctx) return;
     let dsp = this.tracksDSP.get(track.id);
     
-    // Create Nodes if new
     if (!dsp) {
       dsp = {
         input: this.ctx.createGain(),
@@ -459,40 +624,75 @@ export class AudioEngine {
         inputAnalyzer: this.ctx.createAnalyser()
       };
       
-      // Instantiate Instrument Engines
       if (track.type === TrackType.MIDI) {
-          dsp.synth = new Synthesizer(this.ctx);
-          dsp.synth.output.connect(dsp.input);
+        dsp.synth = new Synthesizer(this.ctx);
+        dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-          dsp.melodicSampler = new MelodicSamplerNode(this.ctx);
-          dsp.melodicSampler.output.connect(dsp.input);
-          dsp.drumSampler = new DrumSamplerNode(this.ctx); // Single
-          dsp.drumSampler.output.connect(dsp.input);
-          dsp.sampler = new AudioSampler(this.ctx);
+// FIX: The AudioSampler constructor expects the current BPM as a second argument.
+        dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
+        dsp.sampler.output.connect(dsp.input);
       }
-      // DRUM RACK
       if (track.type === TrackType.DRUM_RACK) {
-          dsp.drumRack = new DrumRackNode(this.ctx);
-          dsp.drumRack.output.connect(dsp.input);
+        dsp.drumRack = new DrumRackNode(this.ctx);
+        dsp.drumRack.output.connect(dsp.input);
       }
-
       this.tracksDSP.set(track.id, dsp);
     }
     
-    // Update Drum Rack State (Pads volume, pan, etc)
     if (track.type === TrackType.DRUM_RACK && dsp.drumRack && track.drumPads) {
-        dsp.drumRack.updatePadsState(track.drumPads);
+      dsp.drumRack.updatePadsState(track.drumPads);
     }
     
-    // ... (Rest of standard updateTrack Logic for plugins/volume/pan) ...
-    // Re-injecting vital parts:
+    // Disconnect for rebuild
     dsp.input.disconnect();
     let head: AudioNode = dsp.input;
-    // ...
-    // Basic routing
-    head.connect(dsp.gain); dsp.gain.connect(dsp.panner); dsp.panner.connect(dsp.analyzer); dsp.analyzer.connect(dsp.output);
-
+    
+    // ===== PLUGIN CHAIN CREATION (THIS WAS MISSING!) =====
+    const currentPluginIds = new Set<string>();
+    
+    track.plugins.forEach(plugin => {
+      currentPluginIds.add(plugin.id);
+      let pEntry = dsp!.pluginChain.get(plugin.id);
+      
+      if (!pEntry) {
+        const instance = this.createPluginNode(plugin, this.currentBpm);
+        if (instance) {
+          pEntry = {
+            input: instance.input,
+            output: instance.output,
+            instance: instance.node
+          };
+          dsp!.pluginChain.set(plugin.id, pEntry);
+        }
+      } else if (pEntry.instance && pEntry.instance.updateParams) {
+        pEntry.instance.updateParams(plugin.params);
+      }
+      
+      if (pEntry && plugin.isEnabled) {
+        head.connect(pEntry.input);
+        head = pEntry.output;
+      }
+    });
+    
+    // Remove old plugins
+    dsp.pluginChain.forEach((val, id) => {
+      if (!currentPluginIds.has(id)) {
+        try {
+          val.input.disconnect();
+          val.output.disconnect();
+        } catch (e) {}
+        dsp!.pluginChain.delete(id);
+      }
+    });
+    // ===== END PLUGIN CHAIN =====
+    
+    // Continue routing
+    head.connect(dsp.gain);
+    dsp.gain.connect(dsp.panner);
+    dsp.panner.connect(dsp.analyzer);
+    dsp.analyzer.connect(dsp.output);
+  
     const now = this.ctx.currentTime;
     dsp.gain.gain.setTargetAtTime(track.isMuted ? 0 : track.volume, now, 0.015);
     dsp.panner.pan.setTargetAtTime(track.pan, now, 0.015);
@@ -500,8 +700,8 @@ export class AudioEngine {
     dsp.output.disconnect();
     let destNode: AudioNode = this.masterOutput!;
     if (track.outputTrackId && track.outputTrackId !== 'master') {
-        const destDSP = this.tracksDSP.get(track.outputTrackId);
-        if (destDSP) destNode = destDSP.input;
+      const destDSP = this.tracksDSP.get(track.outputTrackId);
+      if (destDSP) destNode = destDSP.input;
     }
     dsp.output.connect(destNode);
   }

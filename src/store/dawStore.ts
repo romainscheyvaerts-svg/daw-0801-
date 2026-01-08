@@ -5,6 +5,7 @@ import { DAWState, Track, TrackType, ProjectPhase, PluginInstance, AutomationLan
 import { audioEngine } from '../engine/AudioEngine';
 import { AUDIO_CONFIG, UI_CONFIG } from '../utils/constants';
 
+// --- HELPERS ---
 const generateId = (prefix: string = 'id') => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 const createDefaultState = (): DAWState => ({
@@ -28,13 +29,19 @@ const createDefaultState = (): DAWState => ({
   isDelayCompEnabled: false
 });
 
+// --- STORE INTERFACE ---
 interface DAWStore {
+  // State
   present: DAWState;
   past: DAWState[];
   future: DAWState[];
   user: User | null;
+
+  // Actions
   setUser: (user: User | null) => void;
   setProjectState: (state: DAWState) => void;
+  
+  // Transport
   play: () => void;
   stop: () => void;
   seek: (time: number) => void;
@@ -43,17 +50,24 @@ interface DAWStore {
   toggleDelayComp: () => void;
   setView: (view: ViewType) => void;
   setCurrentTime: (time: number) => void;
+
+  // Tracks
   addTrack: (type: TrackType, name?: string) => void;
   deleteTrack: (id: string) => void;
   updateTrack: (track: Track) => void;
   selectTrack: (id: string) => void;
+
+  // Plugins
   addPlugin: (trackId: string, type: PluginType, metadata?: any) => void;
   removePlugin: (trackId: string, pluginId: string) => void;
   updatePluginParams: (trackId: string, pluginId: string, params: any) => void;
+
+  // History
   undo: () => void;
   redo: () => void;
 }
 
+// --- STORE CREATION ---
 export const useDAWStore = create<DAWStore>((set, get) => ({
   present: createDefaultState(),
   past: [],
@@ -64,6 +78,8 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
 
   setProjectState: (newState) => {
       set({ present: newState, past: [], future: [] });
+      
+      // Init Audio Engine with full state
       audioEngine.init().then(() => {
           newState.tracks.forEach(t => audioEngine.updateTrack(t, newState.tracks));
       });
@@ -76,6 +92,7 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
   play: async () => {
     await audioEngine.init();
     if (audioEngine.ctx?.state === 'suspended') await audioEngine.ctx.resume();
+
     const isPlaying = get().present.isPlaying;
     if (isPlaying) {
       audioEngine.stopAll();
@@ -121,10 +138,13 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
       state.present.currentView = view;
   })),
 
+  // --- TRACK ACTIONS ---
+
   addTrack: (type, name) => {
     set(produce((state: DAWStore) => {
         state.past.push(state.present);
         state.future = [];
+
         const newTrack: Track = {
             id: generateId('track'),
             name: name || `${type} Track`,
@@ -135,6 +155,7 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
             sends: [], clips: [], plugins: [], automationLanes: [], totalLatency: 0
         };
         state.present.tracks.push(newTrack);
+        
         setTimeout(() => audioEngine.updateTrack(newTrack, state.present.tracks), 0);
     }));
   },
@@ -149,7 +170,10 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
   },
 
   updateTrack: (track) => {
+    // ATOMIC OPTIMIZATION
     const currentTrack = get().present.tracks.find(t => t.id === track.id);
+    
+    // FIX: Correctly call atomic audio engine methods for performance.
     if (currentTrack && (currentTrack.volume !== track.volume || currentTrack.isMuted !== track.isMuted)) {
         audioEngine.setTrackVolume(track.id, track.volume, track.isMuted);
     }
@@ -160,9 +184,13 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
     set(produce((state: DAWStore) => {
         state.past.push(state.present);
         state.future = [];
+        
         const idx = state.present.tracks.findIndex(t => t.id === track.id);
         if (idx !== -1) {
             state.present.tracks[idx] = track;
+            
+            // The full graph update is still necessary for structural changes, but less critical for simple tweaks.
+            // We can debounce or optimize this further if needed.
             audioEngine.updateTrack(track, state.present.tracks);
         }
     }));
@@ -172,10 +200,13 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
       state.present.selectedTrackId = id;
   })),
 
+  // --- PLUGINS ---
+
   addPlugin: (trackId, type, metadata) => {
       set(produce((state: DAWStore) => {
           state.past.push(state.present);
           state.future = [];
+
           const track = state.present.tracks.find(t => t.id === trackId);
           if (track) {
               const newPlugin: PluginInstance = {
@@ -196,6 +227,7 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
       set(produce((state: DAWStore) => {
           state.past.push(state.present);
           state.future = [];
+
           const track = state.present.tracks.find(t => t.id === trackId);
           if (track) {
               track.plugins = track.plugins.filter(p => p.id !== pluginId);
@@ -211,6 +243,8 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
               const plugin = track.plugins.find(p => p.id === pluginId);
               if (plugin) {
                   plugin.params = { ...plugin.params, ...params };
+                  
+                  // Atomic Update via AudioEngine -> GraphManager
                   const node = audioEngine.getPluginNodeInstance(trackId, pluginId);
                   if (node && node.updateParams) node.updateParams(params);
               }
@@ -218,23 +252,30 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
       }));
   },
 
+  // --- HISTORY ---
+
   undo: () => set(produce((state: DAWStore) => {
       if (state.past.length === 0) return;
-      const previous = state.past.pop();
-      if(previous) {
-        state.future.unshift(state.present);
-        state.present = previous;
-        state.present.tracks.forEach(t => audioEngine.updateTrack(t, state.present.tracks));
-      }
+      const previous = state.past[state.past.length - 1];
+      const newPast = state.past.slice(0, -1);
+      
+      state.future.unshift(state.present);
+      state.present = previous;
+      state.past = newPast;
+
+      state.present.tracks.forEach(t => audioEngine.updateTrack(t, state.present.tracks));
   })),
 
   redo: () => set(produce((state: DAWStore) => {
       if (state.future.length === 0) return;
-      const next = state.future.shift();
-      if (next) {
-        state.past.push(state.present);
-        state.present = next;
-        state.present.tracks.forEach(t => audioEngine.updateTrack(t, state.present.tracks));
-      }
+      const next = state.future[0];
+      const newFuture = state.future.slice(1);
+
+      state.past.push(state.present);
+      state.present = next;
+      state.future = newFuture;
+
+      state.present.tracks.forEach(t => audioEngine.updateTrack(t, state.present.tracks));
   }))
+
 }));

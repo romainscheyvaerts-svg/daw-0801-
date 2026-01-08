@@ -10,7 +10,7 @@ import { FlangerNode } from './FlangerPlugin';
 import { VocalDoublerNode } from './DoublerPlugin';
 import { StereoSpreaderNode } from './StereoSpreaderPlugin';
 import { CompressorNode } from './CompressorPlugin';
-import { AutoTuneNode } from './autotune-pro/AutoTuneNode';
+import { AutoTuneNode } from './autotune-pro/AutoTuneNode'; // Updated to use the clean node
 import { DeEsserNode } from './DeEsserPlugin';
 import { DenoiserNode } from './DenoiserPlugin';
 import { ProEQ12Node } from './ProEQ12Plugin';
@@ -55,6 +55,7 @@ export interface PluginEntry {
 }
 
 export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
+  // --- DYNAMICS ---
   'COMPRESSOR': {
     name: 'Leveler',
     type: 'COMPRESSOR',
@@ -89,6 +90,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     defaultParams: { threshold: -25, frequency: 6500, q: 1.0, reduction: 0.6, mode: 'BELL', isEnabled: true }
   },
   
+  // --- EQ ---
   'PROEQ12': {
     name: 'Pro-EQ 12',
     type: 'PROEQ12',
@@ -96,7 +98,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     icon: 'fa-wave-square',
     color: '#00f2ff',
     category: 'EQ',
-    factory: (ctx, params) => new ProEQ12Node(ctx, params),
+    factory: (ctx, params) => new ProEQ12Node(ctx, params || { bands: [], masterGain: 1, isEnabled: true }),
     ui: ProEQ12UI,
     defaultParams: {
         isEnabled: true, 
@@ -109,6 +111,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     }
   },
 
+  // --- SPATIAL ---
   'REVERB': {
     name: 'Spatial Verb',
     type: 'REVERB',
@@ -154,6 +157,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     defaultParams: { detune: 0.4, width: 0.8, gainL: 0.7, gainR: 0.7, directOn: true, isEnabled: true }
   },
 
+  // --- MODULATION ---
   'CHORUS': {
     name: 'Vocal Chorus',
     type: 'CHORUS',
@@ -177,6 +181,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     defaultParams: { rate: 0.5, depth: 0.5, feedback: 0.7, manual: 0.3, mix: 0.5, invertPhase: false, isEnabled: true }
   },
 
+  // --- PITCH ---
   'AUTOTUNE': {
     name: 'Auto-Tune Pro',
     type: 'AUTOTUNE',
@@ -189,6 +194,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     defaultParams: { speed: 0.1, humanize: 0.2, mix: 1.0, rootKey: 0, scale: 'CHROMATIC', isEnabled: true }
   },
 
+  // --- UTILITY ---
   'DENOISER': {
     name: 'Denoiser',
     type: 'DENOISER',
@@ -205,13 +211,14 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
     type: 'MASTERSYNC',
     description: 'Auto-Analysis & Scaling',
     icon: 'fa-sync-alt',
-    color: '#ffffff',
+    color: '#00f2ff',
     category: 'UTILITY',
     factory: (ctx) => new MasterSyncNode(ctx),
     ui: MasterSyncUI,
     defaultParams: { detectedBpm: 120, detectedKey: 0, isMinor: false, isAnalyzing: false, analysisProgress: 0, isEnabled: true, hasResult: false }
   },
 
+  // --- INSTRUMENTS ---
   'MELODIC_SAMPLER': {
       name: 'Melodic Sampler',
       type: 'MELODIC_SAMPLER',
@@ -246,6 +253,7 @@ export const PLUGIN_REGISTRY: Record<string, PluginEntry> = {
       defaultParams: { isEnabled: true }
   },
   
+  // --- EXTERNAL ---
   'VST3': {
       name: 'VST3 Bridge',
       type: 'VST3',

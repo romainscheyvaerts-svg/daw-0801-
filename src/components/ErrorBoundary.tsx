@@ -13,17 +13,17 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // FIX: Switched to a constructor for state initialization.
+  // The class property `state = {}` syntax might not be correctly transformed by some build setups,
+  // leading to `this` context issues. A constructor is the standard, universally compatible way to initialize state.
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    // FIX: Class properties like 'state' must be assigned to 'this.state' inside a constructor.
     this.state = {
       hasError: false,
       error: null,
       errorInfo: null,
     };
-    // FIX: To ensure 'this' context within handleReset, it's bound here.
-    // This is a robust alternative to class property arrow functions, which may not be
-    // supported in all build environments.
-    this.handleReset = this.handleReset.bind(this);
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
@@ -33,33 +33,36 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // This lifecycle method is also called after an error has been thrown by a descendant component.
-    // It receives two parameters: the error and an errorInfo object with a componentStack key.
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     this.setState({
       error,
       errorInfo,
     });
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     if (this.props.onError) {
+      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
       this.props.onError(error, errorInfo);
     }
   }
 
-  // FIX: Converted from an arrow function class property to a standard class method
-  // to maintain consistency with constructor-based initialization and binding.
-  handleReset() {
+  handleReset = () => {
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null,
     });
-  }
+  };
 
   render() {
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     if (this.state.hasError) {
+      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
       if (this.props.fallback) {
+        // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
         return this.props.fallback;
       }
 
@@ -83,6 +86,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       );
     }
 
+    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
     return this.props.children;
   }
 }
