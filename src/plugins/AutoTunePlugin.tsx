@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // Export constants for use in other plugins (MasterSync)
@@ -177,7 +176,7 @@ export class AutoTuneNode {
   private worklet: AudioWorkletNode | null = null;
   private onStatusCallback: ((data: any) => void) | null = null;
 
-// FIX: Update constructor to accept initial parameters.
+  // FIX: Update constructor to accept initial parameters.
   private params: AutoTuneParams;
 
   constructor(ctx: AudioContext, initialParams?: AutoTuneParams) {

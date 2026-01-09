@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { DAWState, AIAction } from "../types";
 import { NOTES } from "../plugins/AutoTunePlugin"; // Reuse note constant
@@ -67,7 +68,7 @@ Exemple : User: "Mets un EQ avec un low pass à 500Hz sur le beat" -> { "text": 
 
 export const getAIProductionAssistance = async (currentState: DAWState, userMessage: string): Promise<{ text: string, actions: AIAction[] }> => {
   try {
-    // FIX: Use `GoogleGenAI` with named `apiKey` parameter as per guidelines.
+    // FIX: Use `new GoogleGenAI({ apiKey: ... })` for initialization as per guidelines.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const maxTime = Math.max(...currentState.tracks.flatMap(t => t.clips.map(c => c.start + c.duration)), 60);
     
@@ -86,18 +87,18 @@ export const getAIProductionAssistance = async (currentState: DAWState, userMess
 
     const prompt = `User: ${userMessage}\nState: ${JSON.stringify(stateSummary)}`;
 
-    // FIX: Use `ai.models.generateContent` directly with the model name.
-    // FIX: Updated model from prohibited 'gemini-1.5-flash-latest' to 'gemini-3-flash-preview' for text tasks.
+    // FIX: Use `ai.models.generateContent` with a structured request as per guidelines.
+    // FIX: Replaced prohibited 'gemini-1.5-flash-latest' with 'gemini-3-flash-preview' for text tasks.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTIONS,
         responseMimeType: "application/json",
       }
     });
 
-    // FIX: Extract text using the `.text` property, not the `.text()` method.
+    // FIX: Access the `.text` property directly instead of calling `.text()`.
     const rawText = response.text || "{}";
     const result = JSON.parse(rawText);
     
@@ -116,7 +117,7 @@ export const getAIProductionAssistance = async (currentState: DAWState, userMess
  */
 export const generateCreativeMetadata = async (category: string): Promise<{ name: string, prompt: string }> => {
     try {
-        // FIX: Use `GoogleGenAI` with named `apiKey` parameter as per guidelines.
+        // FIX: Use `new GoogleGenAI({ apiKey: ... })` for initialization as per guidelines.
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const systemPrompt = `You are a creative director for a top-tier Hip-Hop/Rap producer.
@@ -131,18 +132,15 @@ export const generateCreativeMetadata = async (category: string): Promise<{ name
         
         Return JSON only.`;
 
-        // FIX: Use `ai.models.generateContent` directly with the model name.
-        // FIX: Updated model from prohibited 'gemini-1.5-flash-latest' to 'gemini-3-flash-preview' for text tasks.
+        // FIX: Use `ai.models.generateContent` with a structured request as per guidelines.
+        // FIX: Replaced prohibited 'gemini-1.5-flash-latest' with 'gemini-3-flash-preview' for text tasks.
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: [{ 
-                role: 'user', 
-                parts: [{ text: `Genre: ${category}. Generate metadata.` }] 
-            }],
+            contents: `Genre: ${category}. Generate metadata.`,
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json",
-                // FIX: Use the Type enum from @google/genai as per guidelines.
+                // FIX: Use the `Type` enum from `@google/genai` for schema definition.
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -154,7 +152,7 @@ export const generateCreativeMetadata = async (category: string): Promise<{ name
             }
         });
         
-        // FIX: Extract text using the `.text` property, not the `.text()` method.
+        // FIX: Access the `.text` property directly instead of calling `.text()`.
         return JSON.parse(response.text || '{"name": "NIGHT RIDER", "prompt": "Neon city street at night with a matte black sports car"}');
     } catch (e) {
         console.error("AI Metadata Error:", e);
@@ -167,7 +165,7 @@ export const generateCreativeMetadata = async (category: string): Promise<{ name
  */
 export const generateCoverArt = async (beatName: string, category: string, vibe: string): Promise<string | null> => {
   try {
-    // FIX: Use `GoogleGenAI` with named `apiKey` parameter as per guidelines.
+    // FIX: Use `new GoogleGenAI({ apiKey: ... })` for initialization as per guidelines.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // Prompt renforcé pour le style Hip-Hop
@@ -182,7 +180,7 @@ export const generateCoverArt = async (beatName: string, category: string, vibe:
     
     IMPORTANT: **NO TEXT**, NO LETTERS on the image. Just the artwork.`;
 
-    // FIX: Use `ai.models.generateContent` and the correct image generation model 'gemini-2.5-flash-image'.
+    // FIX: Use `ai.models.generateContent` with the recommended 'gemini-2.5-flash-image' model for image generation.
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
@@ -195,7 +193,7 @@ export const generateCoverArt = async (beatName: string, category: string, vibe:
       },
     });
 
-    // FIX: Iterate through response parts to find the image data as per guidelines.
+    // FIX: Iterate through response parts to correctly extract the image data as per guidelines.
     if (response.candidates && response.candidates[0].content.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {

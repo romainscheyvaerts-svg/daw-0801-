@@ -31,7 +31,8 @@ export class AudioSampler {
   private rootKey: number = 60;
 
   // FIX: The constructor now accepts a BPM argument to match the call in AudioEngine.
-  constructor(ctx: AudioContext, bpm: number) {
+  // FIX: The constructor only expects 1 argument.
+  constructor(ctx: AudioContext) {
     this.ctx = ctx;
     this.output = ctx.createGain();
   }

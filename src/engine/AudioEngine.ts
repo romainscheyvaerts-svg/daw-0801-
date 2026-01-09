@@ -440,7 +440,8 @@ export class AudioEngine {
       if (track.type === TrackType.SAMPLER) {
           dsp.melodicSampler = new MelodicSamplerNode(this.ctx); dsp.melodicSampler.output.connect(dsp.input);
           dsp.drumSampler = new DrumSamplerNode(this.ctx); dsp.drumSampler.output.connect(dsp.input);
-          dsp.sampler = new AudioSampler(this.ctx);
+          // FIX: The AudioSampler constructor expects the current BPM as a second argument.
+          dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
       }
       if (track.type === TrackType.DRUM_RACK) { dsp.drumRack = new DrumRackNode(this.ctx); dsp.drumRack.output.connect(dsp.input); }
       this.tracksDSP.set(track.id, dsp);

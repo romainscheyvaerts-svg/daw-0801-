@@ -1,8 +1,4 @@
 
-
-
-
-
 import { Track, Clip, PluginInstance, TrackType, TrackSend, AutomationLane, PluginParameter, PluginType, MidiNote, DrumPad } from '../types';
 import { ReverbNode } from '../plugins/ReverbPlugin';
 import { SyncDelayNode } from '../plugins/DelayPlugin';
@@ -247,8 +243,21 @@ export class AudioEngine {
   private async _armTrackInternal(trackId: string) {
     this.disarmTrack();
     this.monitoringTrackId = trackId;
-    const dsp = this.tracksDSP.get(trackId);
-    if (!dsp) return;
+    
+    let dsp = this.tracksDSP.get(trackId);
+    
+    // Si DSP n'existe pas, attendre un peu et réessayer (race condition fix)
+    if (!dsp) {
+      console.log("[AudioEngine] DSP not ready, waiting 150ms...");
+      await new Promise(r => setTimeout(r, 150));
+      dsp = this.tracksDSP.get(trackId);
+    }
+    
+    if (!dsp) {
+      console.error("[AudioEngine] ARM FAILED - No DSP for track:", trackId);
+      this.monitoringTrackId = null;
+      return;
+    }
 
     try {
       this.activeMonitorStream = await navigator.mediaDevices.getUserMedia({
@@ -260,9 +269,11 @@ export class AudioEngine {
       });
       this.monitorSource = this.ctx!.createMediaStreamSource(this.activeMonitorStream);
       this.monitorSource.connect(dsp.input);
+      console.log("[AudioEngine] Track armed OK:", trackId);
     } catch (e) {
-      console.error("Error arming track: ", e);
+      console.error("[AudioEngine] ARM ERROR:", e);
       this.monitoringTrackId = null;
+      this.activeMonitorStream = null;
     }
   }
 
@@ -279,7 +290,17 @@ export class AudioEngine {
   }
 
   public async startRecording(currentTime: number, trackId: string): Promise<boolean> {
-    if (!this.activeMonitorStream || this.recordingTrackId) return false;
+    console.log("[AudioEngine] startRecording called - stream:", !!this.activeMonitorStream, "recording:", this.recordingTrackId);
+    
+    if (!this.activeMonitorStream) {
+      console.error("[AudioEngine] REC FAILED - No monitor stream! Arm track first.");
+      return false;
+    }
+    if (this.recordingTrackId) {
+      console.error("[AudioEngine] REC FAILED - Already recording on:", this.recordingTrackId);
+      return false;
+    }
+    
     try {
       this.mediaRecorder = new MediaRecorder(this.activeMonitorStream);
       this.audioChunks = [];
@@ -291,10 +312,10 @@ export class AudioEngine {
         }
       };
       this.mediaRecorder.start();
-      console.log("[AudioEngine] Recording started on track:", trackId);
+      console.log("[AudioEngine] Recording started OK on track:", trackId);
       return true;
     } catch (e) {
-      console.error("Error starting recording:", e);
+      console.error("[AudioEngine] REC ERROR:", e);
       this.recordingTrackId = null;
       return false;
     }
@@ -554,13 +575,14 @@ export class AudioEngine {
         node = new ReverbNode(this.ctx);
         break;
       case 'DELAY':
+        // FIX: The SyncDelayNode constructor expects 2 arguments (ctx, bpm), but was getting 1.
         node = new SyncDelayNode(this.ctx, bpm);
         break;
       case 'COMPRESSOR':
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-// FIX: (Line 584) The AutoTuneNode constructor now expects the initial parameters as a second argument.
+        // FIX: The AutoTuneNode constructor expects parameters as a second argument.
         node = new AutoTuneNode(this.ctx, plugin.params);
         break;
       case 'CHORUS':
@@ -630,7 +652,7 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-// The AudioSampler constructor expects the current BPM as a second argument.
+        // FIX: The AudioSampler constructor expects the current BPM as a second argument.
         dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
         dsp.sampler.output.connect(dsp.input);
       }
