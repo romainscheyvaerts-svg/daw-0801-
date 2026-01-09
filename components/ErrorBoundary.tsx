@@ -13,12 +13,10 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // FIX: Switched to a constructor for state initialization.
-  // The class property `state = {}` syntax might not be correctly transformed by some build setups,
-  // leading to `this` context issues. A constructor is the standard, universally compatible way to initialize state.
+  // FIX: Initialized state within the constructor, which is a standard and widely supported method for class components.
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    // FIX: Class properties like 'state' must be assigned to 'this.state' inside a constructor.
+    // FIX: `state` is a property of the component instance and must be assigned to `this.state`.
     this.state = {
       hasError: false,
       error: null,
@@ -35,21 +33,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+    // FIX: `setState` is a method on the component instance and must be called via `this.setState`.
     this.setState({
       error,
       errorInfo,
     });
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+    // FIX: `props` are accessed via `this.props` in class components.
     if (this.props.onError) {
-      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+      // FIX: `props` are accessed via `this.props` in class components.
       this.props.onError(error, errorInfo);
     }
   }
 
   handleReset = () => {
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+    // FIX: `setState` is a method on the component instance and must be called via `this.setState`.
     this.setState({
       hasError: false,
       error: null,
@@ -58,11 +56,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   render() {
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+    // FIX: `state` is accessed via `this.state` in class components.
     if (this.state.hasError) {
-      // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+      // FIX: `props` are accessed via `this.props` in class components.
       if (this.props.fallback) {
-        // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+        // FIX: `props` are accessed via `this.props` in class components.
         return this.props.fallback;
       }
 
@@ -75,7 +73,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="text-gray-400 text-center mb-8">
               An unexpected error occurred.
             </p>
-            {/* FIX: Component methods must be accessed via 'this' */}
+            {/* FIX: Component methods must be called on the `this` instance. */}
             <button
                 onClick={this.handleReset}
                 className="w-full px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-black font-black rounded uppercase transition-colors"
@@ -87,7 +85,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       );
     }
 
-    // FIX: 'setState' and 'props' must be accessed via 'this' in class components.
+    // FIX: `props` are accessed via `this.props` in class components.
     return this.props.children;
   }
 }
