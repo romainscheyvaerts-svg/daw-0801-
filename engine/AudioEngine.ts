@@ -245,12 +245,21 @@ export class AudioEngine {
   }
 
   private async _armTrackInternal(trackId: string) {
+    console.log("[AudioEngine] _armTrackInternal called for track:", trackId);
     this.disarmTrack();
     this.monitoringTrackId = trackId;
+
     const dsp = this.tracksDSP.get(trackId);
-    if (!dsp) return;
+    console.log("[AudioEngine] DSP exists:", !!dsp, "Available DSPs:", Array.from(this.tracksDSP.keys()));
+
+    if (!dsp) {
+      console.error("[AudioEngine] Cannot arm - DSP not found for track:", trackId);
+      this.monitoringTrackId = null;
+      return;
+    }
 
     try {
+      console.log("[AudioEngine] Requesting microphone access...");
       this.activeMonitorStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -258,11 +267,14 @@ export class AudioEngine {
           autoGainControl: false,
         }
       });
+      console.log("[AudioEngine] Microphone access granted");
       this.monitorSource = this.ctx!.createMediaStreamSource(this.activeMonitorStream);
       this.monitorSource.connect(dsp.input);
+      console.log("[AudioEngine] Track armed successfully:", trackId);
     } catch (e) {
-      console.error("Error arming track: ", e);
+      console.error("[AudioEngine] Error arming track:", e);
       this.monitoringTrackId = null;
+      this.activeMonitorStream = null;
     }
   }
 
@@ -279,7 +291,22 @@ export class AudioEngine {
   }
 
   public async startRecording(currentTime: number, trackId: string): Promise<boolean> {
-    if (!this.activeMonitorStream || this.recordingTrackId) return false;
+    console.log("[AudioEngine] startRecording called:", {
+      trackId,
+      currentTime,
+      hasMonitorStream: !!this.activeMonitorStream,
+      currentRecordingTrack: this.recordingTrackId
+    });
+
+    if (!this.activeMonitorStream) {
+      console.error("[AudioEngine] Cannot record - no active monitor stream. Arm a track first!");
+      return false;
+    }
+    if (this.recordingTrackId) {
+      console.error("[AudioEngine] Cannot record - already recording on:", this.recordingTrackId);
+      return false;
+    }
+
     try {
       this.mediaRecorder = new MediaRecorder(this.activeMonitorStream);
       this.audioChunks = [];
@@ -291,10 +318,10 @@ export class AudioEngine {
         }
       };
       this.mediaRecorder.start();
-      console.log("[AudioEngine] Recording started on track:", trackId);
+      console.log("[AudioEngine] Recording started successfully on track:", trackId);
       return true;
     } catch (e) {
-      console.error("Error starting recording:", e);
+      console.error("[AudioEngine] Error starting recording:", e);
       this.recordingTrackId = null;
       return false;
     }
