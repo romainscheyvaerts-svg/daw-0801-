@@ -1,36 +1,38 @@
-
 /**
- * AUDIO ANALYSIS ENGINE (DSP v2.1)
- * Moteur de traitement intelligent avec segmentation contextuelle optimisée.
- * Spécialisé pour les musiques modernes (Pop/Rap/Electro) avec détection Kick-Heavy.
+ * AUDIO ANALYSIS ENGINE (DSP v3.0 - PROFESSIONAL)
+ * Moteur de traitement avancé avec FFT et autocorrélation.
+ * Détection BPM et Key de qualité professionnelle.
  */
 
-// Profils Krumhansl-Schmuckler
+// FIX: Changed import path to resolve module error. Other files use this path.
+import { NOTES } from '../plugins/AutoTunePlugin';
+
 const PROFILE_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
 const PROFILE_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 
 export class AudioAnalysisEngine {
 
   public static async analyzeTrack(buffer: AudioBuffer): Promise<{ bpm: number, rootKey: number, scale: 'MAJOR' | 'MINOR', firstTransient: number }> {
-    console.log("[DSP] Démarrage de l'analyse intelligente v2.1...");
+    console.log("[DSP v3.0] Démarrage de l'analyse professionnelle...");
     
-    if (buffer.length === 0 || buffer.duration < 1) {
-        throw new Error("Buffer audio vide ou trop court.");
+    if (buffer.length === 0 || buffer.duration < 2) {
+      throw new Error("Buffer audio vide ou trop court (min 2s).");
     }
 
-    // 1. Segmentation Intelligente
-    const segments = await this.findBestSegments(buffer);
-    
-    console.log(`[DSP] Segments trouvés : BPM (Zone Drums) à ${segments.bpmStartTime.toFixed(1)}s, KEY (Zone Harmonique) à ${segments.keyStartTime.toFixed(1)}s`);
+    // Utiliser une portion centrale du morceau (éviter intro/outro)
+    const startTime = Math.min(10, buffer.duration * 0.2);
+    const analysisLength = Math.min(30, buffer.duration * 0.6);
 
-    // 2. Détection BPM sur la zone riche en batterie (10s suffisent généralement pour un lock précis)
-    const bpm = await this.detectBPM(buffer, segments.bpmStartTime, 10); 
-    
-    // 3. Détection Tonalité sur la zone calme
-    const keyData = await this.detectKey(buffer, segments.keyStartTime, 15); 
+    // 1. Détection BPM avec autocorrélation
+    const bpm = await this.detectBPMAdvanced(buffer, startTime, analysisLength);
+    console.log(`[DSP] BPM détecté: ${bpm}`);
 
-    // 4. Détection du Drop pour calage
-    const firstTransient = await this.detectFirstHeavyTransient(buffer, 45);
+    // 2. Détection Tonalité avec FFT Chroma
+    const keyData = await this.detectKeyFFT(buffer, startTime, analysisLength);
+    console.log(`[DSP] Key détectée: ${keyData.root} ${keyData.scale}`);
+
+    // 3. Détection du premier transient fort (drop)
+    const firstTransient = await this.detectFirstHeavyTransient(buffer, 60);
 
     return {
       bpm,
@@ -41,168 +43,215 @@ export class AudioAnalysisEngine {
   }
 
   /**
-   * SCAN INTELLIGENT (KICK ENERGY DETECTOR)
-   * Trouve la zone où les basses fréquences (Kick/Basse) sont les plus actives.
+   * DÉTECTION BPM AVANCÉE
+   * Utilise l'autocorrélation de l'enveloppe d'énergie
    */
-  private static async findBestSegments(buffer: AudioBuffer): Promise<{ bpmStartTime: number, keyStartTime: number }> {
-    // On sous-échantillonne pour aller vite (16kHz suffisant pour l'enveloppe)
-    const offlineCtx = new OfflineAudioContext(1, buffer.duration * 16000, 16000);
+  public static async detectBPMAdvanced(buffer: AudioBuffer, startTime: number, duration: number): Promise<number> {
+    const sampleRate = 11025; // Sous-échantillonnage pour rapidité
+    const actualDuration = Math.min(duration, buffer.duration - startTime);
+    
+    const offlineCtx = new OfflineAudioContext(1, actualDuration * sampleRate, sampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = buffer;
     
-    // Filtre LowPass pour isoler l'énergie rythmique (Kick)
+    // Filtre passe-bande pour les fréquences rythmiques (60-200 Hz = kick/bass)
     const lowpass = offlineCtx.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 150;
+    lowpass.frequency.value = 200;
     
-    source.connect(lowpass);
+    const highpass = offlineCtx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 60;
+    
+    source.connect(highpass);
+    highpass.connect(lowpass);
     lowpass.connect(offlineCtx.destination);
-    source.start(0);
+    source.start(0, startTime, actualDuration);
     
     const rendered = await offlineCtx.startRendering();
     const data = rendered.getChannelData(0);
     
-    // Fenêtre d'analyse de 5 secondes
-    const windowSize = 5 * 16000; 
-    let maxLowEndEnergy = 0;
-    let minLowEndEnergy = Infinity;
+    // 1. Calculer l'enveloppe d'énergie (onset strength)
+    const hopSize = Math.floor(sampleRate * 0.01); // 10ms hop
+    const frameSize = Math.floor(sampleRate * 0.02); // 20ms frame
+    const envelope: number[] = [];
     
-    let bestBpmStart = 0;
-    let bestKeyStart = 0;
-
-    for (let i = 0; i < data.length - windowSize; i += windowSize) {
+    for (let i = 0; i < data.length - frameSize; i += hopSize) {
       let energy = 0;
-      let peaksCount = 0;
-      
-      // Analyse locale
-      for (let j = 0; j < windowSize; j += 100) { // Step 100 samples
-         const val = Math.abs(data[i + j]);
-         energy += val;
-         if (val > 0.5) peaksCount++; // Comptage rudimentaire de "coups" forts
+      for (let j = 0; j < frameSize; j++) {
+        energy += data[i + j] * data[i + j];
       }
-      
-      // BPM : On cherche beaucoup d'énergie ET des pics distincts (Batterie)
-      if (energy > maxLowEndEnergy && peaksCount > 5) {
-        maxLowEndEnergy = energy;
-        bestBpmStart = i / 16000;
-      }
-
-      // KEY : On cherche une zone avec un peu d'énergie (pas de silence) mais stable (pas de batterie violente)
-      // On évite les zones de silence complet (energy < seuil)
-      if (energy < minLowEndEnergy && energy > (maxLowEndEnergy * 0.1)) {
-        minLowEndEnergy = energy;
-        bestKeyStart = i / 16000;
-      }
-    }
-
-    // Fallback : Si on n'a rien trouvé de concluant, on prend le milieu pour le BPM et le début pour la Key
-    if (maxLowEndEnergy === 0) bestBpmStart = buffer.duration / 3;
-    if (bestKeyStart === 0) bestKeyStart = 0; // Souvent intro calme
-
-    return { bpmStartTime: bestBpmStart, keyStartTime: bestKeyStart };
-  }
-
-  /**
-   * DÉTECTION BPM (SEUIL DYNAMIQUE)
-   */
-  public static async detectBPM(buffer: AudioBuffer, startTime: number, duration: number): Promise<number> {
-    const offlineCtx = new OfflineAudioContext(1, duration * buffer.sampleRate, buffer.sampleRate);
-    
-    const source = offlineCtx.createBufferSource();
-    source.buffer = buffer;
-    
-    // Filtre pour ne garder que les transitoires percussifs
-    const filter = offlineCtx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 150;
-    filter.Q.value = 1;
-
-    source.connect(filter);
-    filter.connect(offlineCtx.destination);
-    
-    source.start(0, startTime, duration);
-    
-    const rendered = await offlineCtx.startRendering();
-    const data = rendered.getChannelData(0);
-
-    // 1. Normalisation et Seuil Dynamique
-    let maxPeak = 0;
-    for (let i = 0; i < data.length; i++) {
-        if (Math.abs(data[i]) > maxPeak) maxPeak = Math.abs(data[i]);
+      envelope.push(Math.sqrt(energy / frameSize));
     }
     
-    // Le seuil est crucial : trop bas = bruit, trop haut = raté.
-    // 0.6 (60%) du pic max local est généralement bon pour chopper les Kicks et ignorer le reste.
-    const dynamicThreshold = maxPeak * 0.65; 
+    // 2. Différenciation (onset detection)
+    const onsetStrength: number[] = [0];
+    for (let i = 1; i < envelope.length; i++) {
+      onsetStrength.push(Math.max(0, envelope[i] - envelope[i - 1]));
+    }
     
-    const peaks: number[] = [];
-    let lastPeakTime = -1;
-    // On ignore les pics trop rapprochés (moins de 0.25s = 240 BPM) pour éviter les doubles triggers sur un même kick
-    const minDistance = 0.25; 
-
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] > dynamicThreshold) { // On regarde seulement les pics positifs après filtrage
-        const time = i / buffer.sampleRate;
-        if (lastPeakTime === -1 || (time - lastPeakTime) > minDistance) {
-          peaks.push(time);
-          lastPeakTime = time;
-        }
+    // 3. Autocorrélation pour trouver la périodicité
+    const minLag = Math.floor(60 / 200 * (sampleRate / hopSize)); // 200 BPM max
+    const maxLag = Math.floor(60 / 60 * (sampleRate / hopSize));  // 60 BPM min
+    
+    const autocorr: number[] = [];
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < onsetStrength.length - lag; i++) {
+        sum += onsetStrength[i] * onsetStrength[i + lag];
+        count++;
+      }
+      autocorr.push(sum / count);
+    }
+    
+    // 4. Trouver le pic maximum (= période dominante)
+    let maxCorr = 0;
+    let bestLag = minLag;
+    for (let i = 0; i < autocorr.length; i++) {
+      if (autocorr[i] > maxCorr) {
+        maxCorr = autocorr[i];
+        bestLag = minLag + i;
       }
     }
-
-    if (peaks.length < 4) {
-        console.warn("[DSP] Pas assez de pics pour détecter le BPM.");
-        return 120; 
-    }
-
-    // 2. Histogramme des intervalles (avec tolérance)
-    const intervals: Record<number, number> = {};
     
-    for (let i = 1; i < peaks.length; i++) {
-      const interval = peaks[i] - peaks[i-1];
-      // On quantifie l'intervalle à 0.01s près pour grouper les micro-variations
-      // ex: 0.502s et 0.498s deviennent 0.50s
-      const quantized = Math.round(interval * 50) / 50; 
-      
-      if (quantized > 0.3 && quantized < 1.5) { // Range 40-200 BPM
-         intervals[quantized] = (intervals[quantized] || 0) + 1;
-      }
-    }
-
-    // Trouver l'intervalle gagnant
-    let bestInterval = 0;
-    let maxCount = 0;
+    // Convertir lag en BPM
+    const beatPeriodSec = (bestLag * hopSize) / sampleRate;
+    let bpm = 60 / beatPeriodSec;
     
-    // Tri pour privilégier l'intervalle le plus fréquent
-    Object.keys(intervals).forEach(k => {
-       const key = parseFloat(k);
-       if (intervals[key] > maxCount) {
-         maxCount = intervals[key];
-         bestInterval = key;
-       }
-    });
-
-    if (bestInterval === 0) return 120;
-
-    let bpm = 60 / bestInterval;
+    // Normaliser dans la plage 70-180 BPM
+    while (bpm < 70) bpm *= 2;
+    while (bpm > 180) bpm /= 2;
     
-    // Clamp standard (75-165 BPM pour Rap/Pop/Electro)
-    // On évite les BPMs trop lents (souvent Half-Time détecté) ou trop rapides (Double-Time)
-    while (bpm < 75) bpm *= 2;
-    while (bpm > 165) bpm /= 2;
-
+    // Arrondir au BPM entier le plus proche
     return Math.round(bpm);
   }
 
+  /**
+   * DÉTECTION KEY AVEC FFT ET CHROMA
+   */
+  public static async detectKeyFFT(buffer: AudioBuffer, startTime: number, duration: number): Promise<{ root: number, scale: 'MAJOR' | 'MINOR' }> {
+    const sampleRate = buffer.sampleRate;
+    const actualDuration = Math.min(duration, buffer.duration - startTime);
+    
+    // Extraire les données mono
+    const startSample = Math.floor(startTime * sampleRate);
+    const numSamples = Math.floor(actualDuration * sampleRate);
+    const channelData = buffer.getChannelData(0);
+    const data = channelData.slice(startSample, startSample + numSamples);
+    
+    // Paramètres FFT
+    const fftSize = 8192;
+    const hopSize = 4096;
+    const chroma = new Float32Array(12).fill(0);
+    let frameCount = 0;
+    
+    // Fenêtre de Hann
+    const hannWindow = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++) {
+      hannWindow[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+    }
+    
+    // Analyse par frames
+    for (let frameStart = 0; frameStart < data.length - fftSize; frameStart += hopSize) {
+      // Appliquer fenêtre
+      const frame = new Float32Array(fftSize);
+      for (let i = 0; i < fftSize; i++) {
+        frame[i] = data[frameStart + i] * hannWindow[i];
+      }
+      
+      // FFT simple (DFT pour les fréquences qui nous intéressent)
+      const spectrum = this.computeSpectrum(frame, sampleRate);
+      
+      // Accumuler dans les bins chroma
+      for (let note = 0; note < 12; note++) {
+        // Sommer l'énergie de toutes les octaves pour cette note (C0-C8)
+        for (let octave = 1; octave <= 7; octave++) {
+          const freq = 440 * Math.pow(2, (note - 9 + (octave - 4) * 12) / 12);
+          const bin = Math.round(freq * fftSize / sampleRate);
+          if (bin > 0 && bin < spectrum.length) {
+            chroma[note] += spectrum[bin];
+          }
+        }
+      }
+      frameCount++;
+    }
+    
+    // Normaliser
+    if (frameCount > 0) {
+      const maxChroma = Math.max(...chroma);
+      if (maxChroma > 0) {
+        for (let i = 0; i < 12; i++) {
+          chroma[i] /= maxChroma;
+        }
+      }
+    }
+    
+    // Corrélation avec profils Krumhansl-Schmuckler
+    let bestCorr = -Infinity;
+    let bestRoot = 0;
+    let bestScale: 'MAJOR' | 'MINOR' = 'MAJOR';
+    
+    for (let root = 0; root < 12; root++) {
+      const corrMaj = this.correlate(chroma, this.rotate(PROFILE_MAJOR, root));
+      const corrMin = this.correlate(chroma, this.rotate(PROFILE_MINOR, root));
+      
+      if (corrMaj > bestCorr) {
+        bestCorr = corrMaj;
+        bestRoot = root;
+        bestScale = 'MAJOR';
+      }
+      if (corrMin > bestCorr) {
+        bestCorr = corrMin;
+        bestRoot = root;
+        bestScale = 'MINOR';
+      }
+    }
+    
+    return { root: bestRoot, scale: bestScale };
+  }
+
+  /**
+   * Calcul du spectre de magnitude (DFT simplifié)
+   */
+  private static computeSpectrum(frame: Float32Array, sampleRate: number): Float32Array {
+    const N = frame.length;
+    const spectrum = new Float32Array(N / 2);
+    
+    // On ne calcule que les bins utiles (20Hz - 5000Hz)
+    const minBin = Math.floor(20 * N / sampleRate);
+    const maxBin = Math.min(Math.floor(5000 * N / sampleRate), N / 2);
+    
+    for (let k = minBin; k < maxBin; k++) {
+      let real = 0;
+      let imag = 0;
+      for (let n = 0; n < N; n++) {
+        const angle = -2 * Math.PI * k * n / N;
+        real += frame[n] * Math.cos(angle);
+        imag += frame[n] * Math.sin(angle);
+      }
+      spectrum[k] = Math.sqrt(real * real + imag * imag);
+    }
+    
+    return spectrum;
+  }
+
+  /**
+   * Détection du premier transient fort (drop)
+   */
   public static async detectFirstHeavyTransient(buffer: AudioBuffer, scanDuration: number): Promise<number> {
-    const offlineCtx = new OfflineAudioContext(1, Math.min(buffer.duration, scanDuration) * 10000, 10000); 
+    const targetSampleRate = 8000;
+    const actualDuration = Math.min(buffer.duration, scanDuration);
+    
+    const offlineCtx = new OfflineAudioContext(1, actualDuration * targetSampleRate, targetSampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = buffer;
     
+    // Filtre passe-bas pour les basses (kick/drop)
     const lowpass = offlineCtx.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 120; 
-    lowpass.Q.value = 1.0;
+    lowpass.frequency.value = 150;
+    lowpass.Q.value = 0.7;
 
     source.connect(lowpass);
     lowpass.connect(offlineCtx.destination);
@@ -211,104 +260,46 @@ export class AudioAnalysisEngine {
     const rendered = await offlineCtx.startRendering();
     const data = rendered.getChannelData(0);
 
+    // Trouver le maximum global
     let maxAmp = 0;
     for (let i = 0; i < data.length; i++) {
-        if (Math.abs(data[i]) > maxAmp) maxAmp = Math.abs(data[i]);
+      const abs = Math.abs(data[i]);
+      if (abs > maxAmp) maxAmp = abs;
     }
     
-    const threshold = maxAmp * 0.7; // Seuil un peu plus haut pour le drop
+    // Seuil à 60% du max pour le drop
+    const threshold = maxAmp * 0.6;
     
-    for (let i = 0; i < data.length; i++) {
-        if (Math.abs(data[i]) > threshold) {
-            return i / 10000;
-        }
-    }
-    return 0;
-  }
-
-  // --- LOGIQUE KEY (Inchangée mais réintégrée pour cohérence) ---
-  public static async detectKey(buffer: AudioBuffer, startTime: number, duration: number): Promise<{ root: number, scale: 'MAJOR' | 'MINOR' }> {
-    const offlineCtx = new OfflineAudioContext(1, duration * buffer.sampleRate, buffer.sampleRate);
-    const source = offlineCtx.createBufferSource();
-    source.buffer = buffer;
+    // Ignorer les 2 premières secondes (souvent intro calme)
+    const startSample = Math.floor(2 * targetSampleRate);
     
-    const bandpass = offlineCtx.createBiquadFilter();
-    bandpass.type = 'bandpass';
-    bandpass.frequency.value = 400; // Focus sur les fondamentales
-    bandpass.Q.value = 0.5;
-
-    source.connect(bandpass);
-    bandpass.connect(offlineCtx.destination);
-    source.start(0, startTime, duration);
-
-    const rendered = await offlineCtx.startRendering();
-    const data = rendered.getChannelData(0);
-
-    const chroma = new Float32Array(12).fill(0);
-    const sampleRate = buffer.sampleRate;
-    const windowSize = 4096;
+    for (let i = startSample; i < data.length; i++) {
+      if (Math.abs(data[i]) > threshold) {
+        return i / targetSampleRate;
+      }
+    }
     
-    for (let i = 0; i < data.length; i += windowSize) {
-       let rms = 0;
-       for(let k=0; k<windowSize && i+k<data.length; k++) rms += data[i+k]*data[i+k];
-       if (rms < 0.0001) continue;
-
-       const chunk = data.subarray(i, i + windowSize);
-       const freq = this.getPitch(chunk, sampleRate);
-       
-       if (freq > 50 && freq < 1000) {
-          const midi = 12 * Math.log2(freq / 440) + 69;
-          const noteIndex = Math.round(midi) % 12;
-          if (noteIndex >= 0) chroma[noteIndex] += 1;
-       }
-    }
-
-    const maxVal = Math.max(...chroma);
-    const normalizedChroma = chroma.map(v => v / (maxVal || 1));
-
-    let bestCorrelation = -Infinity;
-    let bestRoot = 0;
-    let bestScale: 'MAJOR' | 'MINOR' = 'MAJOR';
-
-    for (let root = 0; root < 12; root++) {
-      const corrMaj = this.correlate(normalizedChroma, this.rotate(PROFILE_MAJOR, root));
-      const corrMin = this.correlate(normalizedChroma, this.rotate(PROFILE_MINOR, root));
-      
-      if (corrMaj > bestCorrelation) { bestCorrelation = corrMaj; bestRoot = root; bestScale = 'MAJOR'; }
-      if (corrMin > bestCorrelation) { bestCorrelation = corrMin; bestRoot = root; bestScale = 'MINOR'; }
-    }
-
-    return { root: bestRoot, scale: bestScale };
-  }
-
-  private static getPitch(buffer: Float32Array, sampleRate: number): number {
-    let bestOffset = -1;
-    let bestCorrelation = 0;
-    for (let offset = 40; offset < 900; offset++) { 
-       if (offset >= buffer.length) break;
-       let correlation = 0;
-       for (let i = 0; i < 1000 && i + offset < buffer.length; i += 2) {
-          correlation += Math.abs(buffer[i] - buffer[i + offset]);
-       }
-       const score = 1 / (1 + correlation);
-       if (score > bestCorrelation) {
-          bestCorrelation = score;
-          bestOffset = offset;
-       }
-    }
-    if (bestOffset > 0) return sampleRate / bestOffset;
-    return 0;
+    return 2; // Fallback: 2 secondes
   }
 
   private static correlate(v1: Float32Array, v2: number[]): number {
     let sum = 0;
-    for (let i = 0; i < 12; i++) sum += v1[i] * v2[i];
-    return sum;
+    let norm1 = 0;
+    let norm2 = 0;
+    for (let i = 0; i < 12; i++) {
+      sum += v1[i] * v2[i];
+      norm1 += v1[i] * v1[i];
+      norm2 += v2[i] * v2[i];
+    }
+    // Corrélation normalisée (Pearson)
+    return sum / (Math.sqrt(norm1) * Math.sqrt(norm2) + 0.0001);
   }
 
   private static rotate(arr: number[], n: number): number[] {
     const res = new Array(arr.length);
-    for (let i = 0; i < arr.length; i++) res[(i + n) % arr.length] = arr[i];
+    for (let i = 0; i < arr.length; i++) {
+      res[i] = arr[(i + n) % arr.length];
+    }
     return res;
   }
 }
