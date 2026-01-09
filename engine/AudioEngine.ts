@@ -92,6 +92,11 @@ export class AudioEngine {
   
   private armingPromise: Promise<void> | null = null;
 
+  // --- LOOP MANAGEMENT ---
+  private isLoopActive: boolean = false;
+  private loopStart: number = 0;
+  private loopEnd: number = 0;
+
   // --- DEVICE MANAGEMENT ---
   private currentInputDeviceId: string = 'default';
   private currentOutputDeviceId: string = 'default';
@@ -180,10 +185,16 @@ export class AudioEngine {
   }
 
   public setDelayCompensation(enabled: boolean) { this.isDelayCompEnabled = enabled; }
+  
+  public setLoop(active: boolean, start: number, end: number) {
+    this.isLoopActive = active;
+    this.loopStart = start;
+    this.loopEnd = end;
+  }
+  
   public playTestTone() { /* ... */ }
 
   // --- PREVIEW & UTILS ---
-  // FIX: Accept an onEnded callback.
   public async playHighResPreview(url: string, onEnded?: () => void): Promise<void> { 
       await this.init(); 
       if (this.ctx?.state === 'suspended') await this.ctx.resume(); 
@@ -213,7 +224,6 @@ export class AudioEngine {
 
   public stopPreview() { 
       if (this.previewSource) { 
-          // FIX: Nullify onended before stopping to prevent race conditions.
           this.previewSource.onended = null;
           try { this.previewSource.stop(); this.previewSource.disconnect(); } catch(e) {} 
           this.previewSource = null; 
@@ -409,7 +419,24 @@ export class AudioEngine {
 
   public getCurrentTime(): number {
     if (!this.ctx) return 0;
-    if (this.isPlaying) return Math.max(0, this.ctx.currentTime - this.playbackStartTime);
+    if (this.isPlaying) {
+      let time = this.ctx.currentTime - this.playbackStartTime;
+      
+      // Handle loop
+      if (this.isLoopActive && this.loopEnd > this.loopStart) {
+        const loopDuration = this.loopEnd - this.loopStart;
+        if (time >= this.loopEnd) {
+          // Calculate how far past the loop end we are and wrap
+          const overflow = time - this.loopStart;
+          const wrappedTime = this.loopStart + (overflow % loopDuration);
+          // Adjust playbackStartTime to reflect the loop
+          this.playbackStartTime = this.ctx.currentTime - wrappedTime;
+          return wrappedTime;
+        }
+      }
+      
+      return Math.max(0, time);
+    }
     return this.pausedAt;
   }
   
@@ -575,14 +602,12 @@ export class AudioEngine {
         node = new ReverbNode(this.ctx);
         break;
       case 'DELAY':
-        // FIX: The constructor call for SyncDelayNode was incorrect. It now receives only the AudioContext as required by its definition.
         node = new SyncDelayNode(this.ctx);
         break;
       case 'COMPRESSOR':
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-        // FIX: The constructor call for AutoTuneNode was incorrect. It now receives only the AudioContext as required by its definition. The parameters will be handled by the subsequent `updateParams` call.
         node = new AutoTuneNode(this.ctx);
         break;
       case 'CHORUS':
@@ -604,7 +629,21 @@ export class AudioEngine {
         node = new DenoiserNode(this.ctx);
         break;
       case 'PROEQ12':
-        node = new ProEQ12Node(this.ctx);
+        const eqDefaultParams = {
+          isEnabled: true,
+          masterGain: 1.0,
+          bands: Array.from({ length: 12 }, (_, i) => ({
+            id: i,
+            type: i === 0 ? 'highpass' : i === 11 ? 'lowpass' : 'peaking',
+            frequency: [80, 150, 300, 500, 1000, 2000, 4000, 6000, 8000, 10000, 12000, 18000][i],
+            gain: 0,
+            q: 1.0,
+            isEnabled: true,
+            isSolo: false
+          }))
+        };
+        const eqParams = plugin.params && plugin.params.bands ? plugin.params : eqDefaultParams;
+        node = new ProEQ12Node(this.ctx, eqParams as any);
         break;
       case 'VOCALSATURATOR':
         node = new VocalSaturatorNode(this.ctx);
@@ -652,8 +691,7 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-        // FIX: The constructor call for AudioSampler was incorrect. It now receives only the AudioContext as required by its definition.
-        dsp.sampler = new AudioSampler(this.ctx);
+        dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
         dsp.sampler.output.connect(dsp.input);
       }
       if (track.type === TrackType.DRUM_RACK) {

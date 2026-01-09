@@ -39,9 +39,31 @@ export class ProEQ12Node {
   private filters: BiquadFilterNode[] = [];
   private params: ProEQ12Params;
 
-  constructor(ctx: AudioContext, initialParams: ProEQ12Params) {
+  constructor(ctx: AudioContext, initialParams?: ProEQ12Params) {
     this.ctx = ctx;
-    this.params = initialParams;
+    
+    // Default params if not provided
+    const defaultBands: ProEQBand[] = [
+      { id: 0, type: 'highpass', frequency: 80, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 1, type: 'peaking', frequency: 150, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 2, type: 'peaking', frequency: 300, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 3, type: 'peaking', frequency: 500, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 4, type: 'peaking', frequency: 1000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 5, type: 'peaking', frequency: 2000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 6, type: 'peaking', frequency: 4000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 7, type: 'peaking', frequency: 6000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 8, type: 'peaking', frequency: 8000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 9, type: 'peaking', frequency: 10000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 10, type: 'peaking', frequency: 12000, gain: 0, q: 1.0, isEnabled: true, isSolo: false },
+      { id: 11, type: 'lowpass', frequency: 18000, gain: 0, q: 1.0, isEnabled: true, isSolo: false }
+    ];
+    
+    this.params = initialParams && initialParams.bands ? initialParams : {
+      isEnabled: true,
+      masterGain: 1.0,
+      bands: defaultBands
+    };
+    
     this.input = ctx.createGain();
     this.output = ctx.createGain();
     this.preAnalyzer = ctx.createAnalyser();

@@ -76,6 +76,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="text-gray-400 text-center mb-8">
               An unexpected error occurred.
             </p>
+            {/* FIX: Component methods must be accessed via 'this' */}
             <button
                 onClick={this.handleReset}
                 className="w-full px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-black font-black rounded uppercase transition-colors"
