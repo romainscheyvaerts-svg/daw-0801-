@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { produce } from 'immer';
 import { DAWState, Track, TrackType, ProjectPhase, PluginInstance, AutomationLane, User, PluginType, ViewType } from '../types';
@@ -122,6 +121,7 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
       state.past.push(state.present);
       state.present.bpm = bpm;
       state.future = [];
+      // FIX: The method `setBpm` was missing on the `audioEngine` instance. It has been added to allow the store to update the engine's BPM.
       audioEngine.setBpm(bpm);
   })),
 
@@ -173,11 +173,13 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
     // ATOMIC OPTIMIZATION
     const currentTrack = get().present.tracks.find(t => t.id === track.id);
     
-    // FIX: Optimized audio updates. Instead of rebuilding the entire graph for simple volume/pan changes, this now calls atomic methods on the audioEngine. A null check on `currentTrack` prevents runtime errors.
+    // FIX: The methods `setTrackVolume` and `setTrackPan` were missing on the `audioEngine` instance. They have been added for atomic updates to avoid full graph rebuilds on simple changes. A null check for `currentTrack` was also added for safety.
     if (currentTrack && (currentTrack.volume !== track.volume || currentTrack.isMuted !== track.isMuted)) {
+        // FIX: The method `setTrackVolume` was missing on the `audioEngine` instance. It has been added for atomic updates to avoid full graph rebuilds on simple changes. A null check for `currentTrack` was also added for safety.
         audioEngine.setTrackVolume(track.id, track.volume, track.isMuted);
     }
     if (currentTrack && currentTrack.pan !== track.pan) {
+        // FIX: The method `setTrackPan` was missing on the `audioEngine` instance. It has been added for atomic updates to avoid full graph rebuilds on simple changes. A null check for `currentTrack` was also added for safety.
         audioEngine.setTrackPan(track.id, track.pan);
     }
     

@@ -201,7 +201,6 @@ export default function App() {
          const time = audioEngine.getCurrentTime();
          const { isLoopActive, loopStart, loopEnd, tracks } = stateRef.current;
          
-         // LOOP: revenir au début quand on atteint la fin
          if (isLoopActive && loopEnd > loopStart && time >= loopEnd) {
            audioEngine.seekTo(loopStart, tracks, true);
            setVisualState({ currentTime: loopStart });
@@ -457,10 +456,9 @@ export default function App() {
           isLoopActive={state.isLoopActive}
           onToggleLoop={() => setState(p => {
             const newLoopActive = !p.isLoopActive;
-            // Si on active la loop et qu'elle n'a pas de valeurs, définir 4 mesures par défaut
             if (newLoopActive && p.loopEnd <= p.loopStart) {
-              const barDuration = (60 / p.bpm) * 4; // durée d'une mesure
-              return { ...p, isLoopActive: true, loopStart: 0, loopEnd: barDuration * 4 }; // 4 mesures
+              const barDuration = (60 / p.bpm) * 4;
+              return { ...p, isLoopActive: true, loopStart: 0, loopEnd: barDuration * 4 };
             }
             return { ...p, isLoopActive: newLoopActive };
           })}
