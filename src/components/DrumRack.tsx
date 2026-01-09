@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Track, DrumPad } from '../types';
 import { audioEngine } from '../engine/AudioEngine';
@@ -72,7 +71,7 @@ const DrumRack: React.FC<DrumRackProps> = ({ track, onUpdateTrack }) => {
                 // Create object URL for immediate use, but logic should handle saving for persistence
                 audioRef = URL.createObjectURL(file); // Temporary Blob URL
                 
-                // FIX 3.3: Accès sécurisé
+                // FIX: Added optional chaining to safely access `window.DAW_CONTROL`. This prevents a runtime error if the global object is not yet defined when a file is dropped.
                 if (window.DAW_CONTROL?.loadDrumSample) {
                     window.DAW_CONTROL.loadDrumSample(track.id, padId, file);
                     return; // loadDrumSample handles state update in App.tsx

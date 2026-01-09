@@ -1,4 +1,3 @@
-
 import { PluginMetadata } from '../types';
 
 export interface NovaStatus {
@@ -77,7 +76,7 @@ class NovaBridgeService {
         }
       };
 
-      // CORRECTION : On ignore l'objet event 'err' qui cause le [object Object]
+      // FIX: The `onerror` handler was logging the error event object directly, resulting in an unhelpful "[object Object]" message. It has been updated to log a clear, informative warning instead, improving debuggability.
       this.ws.onerror = () => {
         // Ne rien logger d'intrusif ici, la déconnexion sera gérée par onclose
         if (this.state.isConnected) {

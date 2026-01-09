@@ -1,4 +1,3 @@
-
 import JSZip from 'jszip';
 import { DAWState, Clip } from '../types';
 import { audioBufferToWav } from './AudioUtils';
@@ -75,7 +74,7 @@ export class ProjectIO {
     
     const jsonContent = await jsonFile.async("string");
     
-    // FIX 4.4: Validation JSON
+    // FIX: Added a try-catch block for robust JSON parsing. This prevents application crashes if the project file is corrupted or invalid by throwing a user-friendly error.
     let loadedState: any;
     try {
         loadedState = JSON.parse(jsonContent);

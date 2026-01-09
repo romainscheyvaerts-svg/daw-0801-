@@ -236,7 +236,6 @@ export default function App() {
   
   const handleSaveCloud = async (projectName: string) => { /* ... */ };
   const handleSaveAsCopy = async (n: string) => { /* ... */ };
-  // FIX: (Line 574) The `downloadLocalJSON` function expects a string, but it was being called as a function `n()`. The call was corrected to `n`.
   const handleSaveLocal = async (n: string) => { SessionSerializer.downloadLocalJSON(stateRef.current, n); };
   const handleLoadCloud = async (id: string) => { /* ... */ };
   const handleLoadLocalFile = async (f: File) => { /* ... */ };
@@ -338,9 +337,11 @@ export default function App() {
     
     // Stop recording
     if (currentState.isRecording) {
+      audioEngine.stopAll();
       const result = await audioEngine.stopRecording();
       setState(produce(draft => {
         draft.isRecording = false;
+        draft.isPlaying = false;
         draft.recStartTime = null;
         if (result) {
           const track = draft.tracks.find(t => t.id === result.trackId);
@@ -357,8 +358,11 @@ export default function App() {
     if (armedTrack) {
       const success = await audioEngine.startRecording(currentState.currentTime, armedTrack.id);
       if (success) {
+        // Auto-start playback when recording begins
+        audioEngine.startPlayback(currentState.currentTime, currentState.tracks);
         setState(produce(draft => {
           draft.isRecording = true;
+          draft.isPlaying = true;
           draft.recStartTime = draft.currentTime;
         }));
       }
@@ -467,7 +471,7 @@ export default function App() {
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
           isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={toggleSidebar}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         >
           <div className="ml-4 border-l border-white/5 pl-4"><ViewModeSwitcher currentMode={viewMode} onChange={handleViewModeChange} /></div>
         </TransportBar>

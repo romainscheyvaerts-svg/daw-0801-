@@ -1,4 +1,3 @@
-
 export interface MelodicSamplerParams {
   // Source
   rootKey: number;        // MIDI Note (0-127)
@@ -203,7 +202,7 @@ export class MelodicSamplerNode {
     }
   }
   
-  public getParams() { return this.params; }
+  public getParams() { return { ...this.params }; }
   public getBuffer() { return this.buffer; }
 
   public triggerAttack(pitch: number, velocity: number, time: number) {
@@ -295,7 +294,7 @@ export class MelodicSamplerNode {
       this.activeVoices.clear();
   }
 
-  // FIX 5.1: Méthode de nettoyage
+  // FIX: Added a dispose method to properly clean up audio nodes (LFO, voices) when the plugin is removed, preventing memory leaks and orphaned audio processes.
   public dispose() {
       try { this.lfo.stop(); } catch(e) {}
       try { this.lfo.disconnect(); } catch(e) {}

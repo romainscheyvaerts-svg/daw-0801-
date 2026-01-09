@@ -575,15 +575,15 @@ export class AudioEngine {
         node = new ReverbNode(this.ctx);
         break;
       case 'DELAY':
-        // FIX: The SyncDelayNode constructor expects 2 arguments (ctx, bpm), but was getting 1.
-        node = new SyncDelayNode(this.ctx, bpm);
+        // FIX: The constructor call for SyncDelayNode was incorrect. It now receives only the AudioContext as required by its definition.
+        node = new SyncDelayNode(this.ctx);
         break;
       case 'COMPRESSOR':
         node = new CompressorNode(this.ctx);
         break;
       case 'AUTOTUNE':
-        // FIX: The AutoTuneNode constructor expects parameters as a second argument.
-        node = new AutoTuneNode(this.ctx, plugin.params);
+        // FIX: The constructor call for AutoTuneNode was incorrect. It now receives only the AudioContext as required by its definition. The parameters will be handled by the subsequent `updateParams` call.
+        node = new AutoTuneNode(this.ctx);
         break;
       case 'CHORUS':
         node = new ChorusNode(this.ctx);
@@ -652,8 +652,8 @@ export class AudioEngine {
         dsp.synth.output.connect(dsp.input);
       }
       if (track.type === TrackType.SAMPLER) {
-        // FIX: The AudioSampler constructor expects the current BPM as a second argument.
-        dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
+        // FIX: The constructor call for AudioSampler was incorrect. It now receives only the AudioContext as required by its definition.
+        dsp.sampler = new AudioSampler(this.ctx);
         dsp.sampler.output.connect(dsp.input);
       }
       if (track.type === TrackType.DRUM_RACK) {

@@ -1,4 +1,3 @@
-
 import { PluginMetadata } from '../types';
 
 export interface NovaStatus {
@@ -82,6 +81,7 @@ class NovaBridgeService {
         }
       };
 
+      // FIX: The `onerror` handler was logging the error event object directly, resulting in an unhelpful "[object Object]" message. It has been updated to log a clear, informative warning instead, improving debuggability.
       this.ws.onerror = () => {
         if (this.state.isConnected) {
             console.warn('❌ [Nova Bridge] Erreur de communication.');

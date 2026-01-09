@@ -188,7 +188,6 @@ export class AudioEngine {
   public setDelayCompensation(enabled: boolean) { this.isDelayCompEnabled = enabled; }
   public playTestTone() { /* ... */ }
 
-  // FIX: Accept an onEnded callback.
   public async playHighResPreview(url: string, onEnded?: () => void): Promise<void> { 
       await this.init(); 
       if (this.ctx?.state === 'suspended') await this.ctx.resume(); 
@@ -218,7 +217,6 @@ export class AudioEngine {
 
   public stopPreview() { 
       if (this.previewSource) { 
-          // FIX: Nullify onended before stopping to prevent race conditions.
           this.previewSource.onended = null;
           try { this.previewSource.stop(); this.previewSource.disconnect(); } catch(e) {} 
           this.previewSource = null; 
@@ -440,8 +438,8 @@ export class AudioEngine {
       if (track.type === TrackType.SAMPLER) {
           dsp.melodicSampler = new MelodicSamplerNode(this.ctx); dsp.melodicSampler.output.connect(dsp.input);
           dsp.drumSampler = new DrumSamplerNode(this.ctx); dsp.drumSampler.output.connect(dsp.input);
-          // FIX: The AudioSampler constructor expects the current BPM as a second argument.
-          dsp.sampler = new AudioSampler(this.ctx, this.currentBpm);
+          // FIX: The constructor for AudioSampler was called with two arguments, but it only expects one (AudioContext). The BPM is not used by this legacy sampler.
+          dsp.sampler = new AudioSampler(this.ctx);
       }
       if (track.type === TrackType.DRUM_RACK) { dsp.drumRack = new DrumRackNode(this.ctx); dsp.drumRack.output.connect(dsp.input); }
       this.tracksDSP.set(track.id, dsp);

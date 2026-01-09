@@ -131,7 +131,7 @@ class MidiManager {
   
   public addNoteListener(callback: MidiMessageCallback) {
       this.noteListeners.add(callback);
-      // FIX: Return a cleanup function for useEffect
+      // FIX: Return a cleanup function to allow `useEffect` to properly unsubscribe the listener when the component unmounts, preventing memory leaks.
       return () => { this.noteListeners.delete(callback); };
   }
 

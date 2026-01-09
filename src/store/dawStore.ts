@@ -173,7 +173,7 @@ export const useDAWStore = create<DAWStore>((set, get) => ({
     // ATOMIC OPTIMIZATION
     const currentTrack = get().present.tracks.find(t => t.id === track.id);
     
-    // FIX: Correctly call atomic audio engine methods for performance.
+    // FIX: Optimized audio updates. Instead of rebuilding the entire graph for simple volume/pan changes, this now calls atomic methods on the audioEngine. A null check on `currentTrack` prevents runtime errors.
     if (currentTrack && (currentTrack.volume !== track.volume || currentTrack.isMuted !== track.isMuted)) {
         audioEngine.setTrackVolume(track.id, track.volume, track.isMuted);
     }
